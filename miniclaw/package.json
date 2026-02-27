@@ -1,0 +1,12 @@
+{
+  "name": "miniclaw",
+  "version": "1.0.0",
+  "description": "MiniClaw AI Assistant - A minimal AI assistant with container isolation",
+  "scripts": {
+    "setup": "cd host && npm install && cd ../container && npm install",
+    "build": "cd host && npm run build && cd ../container && npm run build",
+    "build:container": "docker build -t miniclaw-agent:latest ./container",
+    "start": "cd host && node dist/index.js",
+    "chat": "cd host && node dist/index.js chat"
+  }
+}

@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  miniclaw:
+    build: ./container
+    image: miniclaw-agent:latest
+    container_name: miniclaw-dev
+    volumes:
+      - ./workspace:/workspace/files:rw
+      - ./data:/workspace/data:rw
+    environment:
+      - NODE_ENV=development
+    command: echo "MiniClaw agent image built successfully"

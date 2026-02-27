@@ -1,0 +1,58 @@
+export interface Session {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  model: string;
+  createdAt: number;
+  updatedAt: number;
+  isActive: boolean;
+}
+
+export interface Message {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  toolCalls?: ToolCall[];
+  timestamp: number;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: string;
+}
+
+export interface PromptPayload {
+  session: Session;
+  messages: Message[];
+  userInput: string;
+  apiConfig: ApiConfig;
+}
+
+export interface ApiConfig {
+  provider: 'anthropic' | 'openai';
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+  maxTokens: number;
+}
+
+export interface Tool {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+  execute: (args: Record<string, unknown>) => Promise<string>;
+}
+
+export interface ContainerResult {
+  success: boolean;
+  content: string;
+  toolCalls?: ToolCall[];
+  error?: string;
+}
