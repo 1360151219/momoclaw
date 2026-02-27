@@ -26,9 +26,10 @@ export function loadConfig(): Config {
 
   return {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL,
     openaiApiKey: process.env.OPENAI_API_KEY,
     openaiBaseUrl: process.env.OPENAI_BASE_URL,
-    defaultModel: process.env.MODEL || 'anthropic/claude-sonnet-4-6',
+    defaultModel: process.env.MODEL || 'anthropic/claude-3-5-sonnet-20241022',
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     workspaceDir,
     containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10),
@@ -41,7 +42,6 @@ export function getApiConfig(config: Config, modelOverride?: string): ApiConfig 
   const modelStr = modelOverride || config.defaultModel;
   const [provider, ...modelParts] = modelStr.split('/');
   const model = modelParts.join('/');
-
   if (provider === 'anthropic') {
     if (!config.anthropicApiKey) {
       throw new Error('ANTHROPIC_API_KEY not configured');
@@ -50,6 +50,7 @@ export function getApiConfig(config: Config, modelOverride?: string): ApiConfig 
       provider: 'anthropic',
       model,
       apiKey: config.anthropicApiKey,
+      baseUrl: config.anthropicBaseUrl,
       maxTokens: config.maxTokens,
     };
   }

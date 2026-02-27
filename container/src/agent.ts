@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
+import { OpenAI } from 'openai/index.mjs';
 import { PromptPayload, ToolCall, ApiConfig, Message } from './types.js';
 import { getToolDefinitions, executeTool } from './tools.js';
 
@@ -250,7 +250,18 @@ async function runOpenAIAgent(
     });
 
     if (onStream) {
-      // 流式处理需要重新请求非流式版本来获取工具调用
+      // 流式处理：先流式输出，再重新请求非流式版本来获取工具调用
+      let streamContent = '';
+      for await (const chunk of completion as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          streamContent += delta;
+          onStream(delta);
+        }
+      }
+      finalContent = streamContent;
+
+      // 重新请求非流式版本来获取完整响应（包括 tool_calls）
       const fullCompletion = await client.chat.completions.create({
         model,
         max_tokens: maxTokens,
@@ -266,11 +277,6 @@ async function runOpenAIAgent(
       });
 
       const message = fullCompletion.choices[0]?.message;
-
-      if (message?.content) {
-        finalContent = message.content;
-        onStream(message.content);
-      }
 
       if (message?.tool_calls && message.tool_calls.length > 0) {
         for (const toolCall of message.tool_calls) {

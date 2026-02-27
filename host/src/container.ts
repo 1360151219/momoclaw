@@ -78,10 +78,8 @@ export async function runContainerAgent(
     child.stderr?.on('data', (data: Buffer) => {
       const chunk = data.toString();
       stderr += chunk;
-      // stderr也输出给用户（用于调试）
-      if (onStream) {
-        onStream(`[stderr] ${chunk}`);
-      }
+      // stderr 只记录，不输出给用户，避免干扰正常输出
+      // 调试信息会在出错时一并显示
     });
 
     // 超时处理
@@ -94,12 +92,7 @@ export async function runContainerAgent(
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
-      // 清理临时目录
-      try {
-        rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // 忽略清理错误
-      }
+
 
       if (code !== 0) {
         resolve({
@@ -130,6 +123,12 @@ export async function runContainerAgent(
           error: `Failed to parse result: ${err}`,
         });
       }
+      // 清理临时目录
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // 忽略清理错误
+      }
     });
 
     child.on('error', (err) => {
@@ -137,7 +136,7 @@ export async function runContainerAgent(
       // 清理临时目录
       try {
         rmSync(tempDir, { recursive: true, force: true });
-      } catch {}
+      } catch { }
       reject(err);
     });
   });

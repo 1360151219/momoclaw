@@ -48,6 +48,7 @@ export interface ContainerResult {
 
 export interface Config {
   anthropicApiKey?: string;
+  anthropicBaseUrl?: string;
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   defaultModel: string;

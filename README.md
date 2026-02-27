@@ -82,8 +82,8 @@ miniclaw                    # 快捷方式，使用当前会话
 
 ```bash
 # Claude 模型
-anthropic/claude-sonnet-4-6
-anthropic/claude-opus-4-6
+anthropic/claude-3-5-sonnet-20241022
+anthropic/claude-3-opus-20240229
 
 # OpenAI 兼容模型 (如 Kimi)
 openai/kimi-latest
@@ -93,7 +93,7 @@ openai/gpt-4
 在 `.env` 中设置默认模型：
 
 ```bash
-MODEL=anthropic/claude-sonnet-4-6
+MODEL=anthropic/claude-3-5-sonnet-20241022
 ```
 
 或在对话中使用：

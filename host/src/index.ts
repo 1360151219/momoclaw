@@ -58,7 +58,16 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
   const rl = createInterface({ input, output });
 
+  let isClosed = false;
+
+  rl.on('close', () => {
+    isClosed = true;
+  });
+
   const askQuestion = () => {
+    if (isClosed) {
+      return;
+    }
     const prefix = `[${session!.id}:${shortModel}]`;
     rl.question(`${kleur.gray(prefix)} > `, async (input) => {
       const trimmed = input.trim();
@@ -71,6 +80,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
       // 内置命令
       if (trimmed === '/exit' || trimmed === '/quit') {
         console.log(kleur.gray('Goodbye!'));
+        isClosed = true;
         rl.close();
         return;
       }
@@ -117,21 +127,35 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         apiConfig: getApiConfig(config, session!.model || undefined),
       };
 
-      process.stdout.write(kleur.gray('Thinking... '));
+      process.stdout.write(kleur.gray('Thinking...'));
+      let contentBuffer = '';
+      let thinkingCleared = false;
 
       try {
         const result = await runContainerAgent(payload, (chunk) => {
-          // 清除"Thinking..."
-          process.stdout.write('\r' + ' '.repeat(20) + '\r');
+          // 只在第一次收到内容时清除"Thinking..."
+          if (!thinkingCleared) {
+            process.stdout.write('\r' + ' '.repeat(20) + '\r');
+            thinkingCleared = true;
+          }
           process.stdout.write(chunk);
+          contentBuffer += chunk;
         });
 
-        // 清除"Thinking..."
-        process.stdout.write('\r' + ' '.repeat(20) + '\r');
+        // 如果没有内容，清除"Thinking..."
+        if (!thinkingCleared) {
+          process.stdout.write('\r' + ' '.repeat(20) + '\r');
+        }
 
         if (result.success) {
-          console.log(result.content);
-          addMessage(session!.id, 'assistant', result.content, result.toolCalls);
+          const finalContent = contentBuffer || result.content;
+          // 确保输出以换行结尾
+          if (contentBuffer && !contentBuffer.endsWith('\n')) {
+            process.stdout.write('\n');
+          } else if (!contentBuffer && finalContent) {
+            console.log(finalContent);
+          }
+          addMessage(session!.id, 'assistant', finalContent, result.toolCalls);
         } else {
           console.error(kleur.red(`Error: ${result.error}`));
         }
@@ -140,7 +164,10 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         console.error(kleur.red(`Container error: ${err}`));
       }
 
-      askQuestion();
+      // 延迟显示提示符，确保所有输出完成
+      setTimeout(() => {
+        askQuestion();
+      }, 10);
     });
   };
 
