@@ -18,11 +18,25 @@ export function initDatabase(dbPath: string): Database.Database {
       name TEXT NOT NULL,
       system_prompt TEXT NOT NULL DEFAULT '',
       model TEXT,
+      sdk_session_id TEXT,
+      sdk_resume_at TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 0
     )
   `);
+
+  // 迁移：为已存在的表添加新列
+  const pragmaTable = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+  const hasSdkSessionId = pragmaTable.some((col: any) => col.name === 'sdk_session_id');
+  const hasSdkResumeAt = pragmaTable.some((col: any) => col.name === 'sdk_resume_at');
+
+  if (!hasSdkSessionId) {
+    db.exec('ALTER TABLE sessions ADD COLUMN sdk_session_id TEXT');
+  }
+  if (!hasSdkResumeAt) {
+    db.exec('ALTER TABLE sessions ADD COLUMN sdk_resume_at TEXT');
+  }
 
   // 创建messages表
   db.exec(`
@@ -64,8 +78,8 @@ export function createSession(
   db.prepare('UPDATE sessions SET is_active = 0 WHERE is_active = 1').run();
 
   const stmt = db.prepare(`
-    INSERT INTO sessions (id, name, system_prompt, model, created_at, updated_at, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, 1)
+    INSERT INTO sessions (id, name, system_prompt, model, sdk_session_id, sdk_resume_at, created_at, updated_at, is_active)
+    VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 1)
   `);
 
   stmt.run(id, name, systemPrompt, model || null, now, now);
@@ -92,6 +106,8 @@ export function getSession(id: string): Session | undefined {
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',
+    sdkSessionId: row.sdk_session_id || undefined,
+    sdkResumeAt: row.sdk_resume_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isActive: row.is_active === 1,
@@ -109,6 +125,8 @@ export function getActiveSession(): Session | undefined {
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',
+    sdkSessionId: row.sdk_session_id || undefined,
+    sdkResumeAt: row.sdk_resume_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isActive: true,
@@ -124,6 +142,8 @@ export function listSessions(): Session[] {
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',
+    sdkSessionId: row.sdk_session_id || undefined,
+    sdkResumeAt: row.sdk_resume_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isActive: row.is_active === 1,
@@ -133,7 +153,7 @@ export function listSessions(): Session[] {
 export function switchSession(id: string): boolean {
   const db = getDb();
 
-  // 检查会话是否存在
+  // 检查会话是否存在·
   const session = getSession(id);
   if (!session) return false;
 
@@ -163,6 +183,13 @@ export function updateSessionModel(id: string, model: string): boolean {
   const db = getDb();
   const result = db.prepare('UPDATE sessions SET model = ?, updated_at = ? WHERE id = ?')
     .run(model, Date.now(), id);
+  return result.changes > 0;
+}
+
+export function updateSessionSdkState(id: string, sdkSessionId?: string, sdkResumeAt?: string): boolean {
+  const db = getDb();
+  const result = db.prepare('UPDATE sessions SET sdk_session_id = ?, sdk_resume_at = ?, updated_at = ? WHERE id = ?')
+    .run(sdkSessionId || null, sdkResumeAt || null, Date.now(), id);
   return result.changes > 0;
 }
 

@@ -1,28 +1,41 @@
 import dotenv from 'dotenv';
 import { Config, ApiConfig } from './types.js';
 import { resolve } from 'path';
+import { existsSync, readFileSync } from 'fs';
 
 dotenv.config();
 
-const DEFAULT_SYSTEM_PROMPT = `You are MiniClaw, a helpful AI assistant running in an isolated Docker container.
+const FALLBACK_SYSTEM_PROMPT = `You are MiniClaw, a helpful AI assistant running in an isolated Docker container, powered by Claude Agent SDK.
 
-You have access to the following tools:
-- read_file: Read file content from the workspace
-- write_file: Write content to a file in the workspace
-- edit_file: Replace text in a file
-- list_directory: List files in a directory
-- execute_command: Execute shell commands in the workspace
+You have access to a full set of developer tools including:
+- File operations: Read, Write, Edit, Glob, Grep
+- Command execution: Bash
+- Web access: WebSearch, WebFetch
+- And more...
 
 Rules:
-1. Always use tools to interact with files, never assume file content
-2. Be careful with execute_command - it can modify the system
-3. When editing files, ensure oldString matches exactly
-4. Workspace path is /workspace/files - all file operations are relative to this
+1. Workspace is at /workspace/files - all your work should be here
+2. Always use tools to interact with files and the system
+3. Be careful with Bash commands - verify what you're doing
+4. Be concise but thorough in your responses
 
-Be concise but thorough in your responses.`;
+Enjoy helping the user!`;
+
+function loadClaudeMd(workspaceDir: string): string {
+  const claudeMdPath = resolve(workspaceDir, 'CLAUDE.md');
+  if (existsSync(claudeMdPath)) {
+    try {
+      return readFileSync(claudeMdPath, 'utf-8');
+    } catch (err) {
+      console.warn(`Warning: Failed to read ${claudeMdPath}, using fallback system prompt`);
+    }
+  }
+  return FALLBACK_SYSTEM_PROMPT;
+}
 
 export function loadConfig(): Config {
   const workspaceDir = resolve(process.env.WORKSPACE_DIR || './workspace');
+  const defaultSystemPrompt = loadClaudeMd(workspaceDir);
 
   return {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
@@ -34,7 +47,7 @@ export function loadConfig(): Config {
     workspaceDir,
     containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10),
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
-    defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
+    defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || defaultSystemPrompt,
   };
 }
 

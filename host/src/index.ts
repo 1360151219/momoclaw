@@ -5,7 +5,7 @@ import { createInterface } from 'readline';
 import { stdin as input, stdout as output } from 'process';
 import kleur from 'kleur';
 import { config, getApiConfig } from './config.js';
-import { initDatabase, createSession, getSession, getActiveSession, listSessions, switchSession, deleteSession, updateSessionPrompt, updateSessionModel, addMessage, getSessionMessages, clearSessionMessages } from './db.js';
+import { initDatabase, createSession, getSession, getActiveSession, listSessions, switchSession, deleteSession, updateSessionPrompt, updateSessionModel, updateSessionSdkState, addMessage, getSessionMessages, clearSessionMessages } from './db.js';
 import { runContainerAgent, checkDockerAvailable, buildContainerImage } from './container.js';
 import { PromptPayload } from './types.js';
 
@@ -87,6 +87,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
       if (trimmed === '/clear') {
         clearSessionMessages(session!.id);
+        updateSessionSdkState(session!.id, undefined, undefined);
         console.log(kleur.gray('Session history cleared.'));
         askQuestion();
         return;
@@ -156,6 +157,10 @@ async function interactiveChat(sessionId?: string): Promise<void> {
             console.log(finalContent);
           }
           addMessage(session!.id, 'assistant', finalContent, result.toolCalls);
+          // 更新 SDK session 状态
+          if (result.sdkSessionId || result.sdkResumeAt) {
+            updateSessionSdkState(session!.id, result.sdkSessionId, result.sdkResumeAt);
+          }
         } else {
           console.error(kleur.red(`Error: ${result.error}`));
         }

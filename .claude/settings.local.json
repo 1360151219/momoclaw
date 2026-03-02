@@ -6,7 +6,10 @@
       "Bash(wc:*)",
       "Bash(npm install:*)",
       "Bash(npm run:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "WebFetch(domain:mp.weixin.qq.com)",
+      "Bash(rm:*)",
+      "Bash(ls:*)"
     ]
   }
 }

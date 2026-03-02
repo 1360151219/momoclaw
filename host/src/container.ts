@@ -13,7 +13,7 @@ const CONTAINER_IMAGE = 'miniclaw-agent:latest';
 
 export async function runContainerAgent(
   payload: PromptPayload,
-  onStream?: (chunk: string) => void
+  onStream?: (chunk: string) => void,
 ): Promise<ContainerResult> {
   const sessionId = payload.session.id;
   const runId = randomBytes(8).toString('hex');
@@ -45,13 +45,20 @@ export async function runContainerAgent(
     '--network=host',
     `--memory=2g`,
     `--cpus=2`,
-    `-v`, `${workspacePath}:/workspace/files:rw`,
-    `-v`, `${inputDir}:/workspace/input:ro`,
-    `-v`, `${outputDir}:/workspace/output:rw`,
-    `-v`, `${containerWorkspace}:/workspace/tmp:rw`,
-    '-e', `INPUT_FILE=/workspace/input/payload.json`,
-    '-e', `OUTPUT_FILE=/workspace/output/result.json`,
-    '-e', `TMP_DIR=/workspace/tmp`,
+    `-v`,
+    `${workspacePath}:/workspace/files:rw`,
+    `-v`,
+    `${inputDir}:/workspace/input:ro`,
+    `-v`,
+    `${outputDir}:/workspace/output:rw`,
+    `-v`,
+    `${containerWorkspace}:/workspace/tmp:rw`,
+    '-e',
+    `INPUT_FILE=/workspace/input/payload.json`,
+    '-e',
+    `OUTPUT_FILE=/workspace/output/result.json`,
+    '-e',
+    `TMP_DIR=/workspace/tmp`,
     CONTAINER_IMAGE,
     'node',
     '/app/dist/index.js',
@@ -92,8 +99,6 @@ export async function runContainerAgent(
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
-
-
       if (code !== 0) {
         resolve({
           success: false,
@@ -114,7 +119,9 @@ export async function runContainerAgent(
       }
 
       try {
-        const result: ContainerResult = JSON.parse(readFileSync(outputFile, 'utf-8'));
+        const result: ContainerResult = JSON.parse(
+          readFileSync(outputFile, 'utf-8'),
+        );
         resolve(result);
       } catch (err) {
         resolve({
@@ -136,7 +143,7 @@ export async function runContainerAgent(
       // 清理临时目录
       try {
         rmSync(tempDir, { recursive: true, force: true });
-      } catch { }
+      } catch {}
       reject(err);
     });
   });

@@ -37,6 +37,7 @@ Thumbs.db
 
 # Skills system (local per-installation state)
 .nanoclaw/
+.trae/
 
 # Test coverage
 coverage/

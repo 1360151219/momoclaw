@@ -113,6 +113,55 @@ miniclaw/
 └── .env            # 配置文件
 ```
 
+## MCP 文章抓取服务
+
+Container 内置 MCP (Model Context Protocol) 服务，支持抓取国内主流平台文章：
+
+### 支持平台
+
+- 知乎专栏 (zhuanlan.zhihu.com)
+- 微信公众号 (mp.weixin.qq.com)
+- 掘金 (juejin.cn)
+- CSDN (blog.csdn.net)
+- 博客园 (cnblogs.com)
+- B站专栏 (bilibili.com/read)
+
+### 在 Claude Code 中使用
+
+1. 配置 MCP 服务器（在 `~/.claude/settings.json`）：
+
+```json
+{
+  "mcpServers": {
+    "article-fetcher": {
+      "command": "node",
+      "args": ["/path/to/momoclaw/container/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+2. 然后可以直接让 Claude 抓取和总结文章：
+   - "帮我抓取这篇文章：https://zhuanlan.zhihu.com/p/xxx"
+   - "总结一下 https://juejin.cn/post/xxx 的内容"
+
+### CLI 命令行工具
+
+```bash
+cd container
+
+# 抓取文章
+node dist/fetch-article-cli.js <url>
+
+# 输出为 JSON
+node dist/fetch-article-cli.js <url> --format=json
+
+# 获取摘要
+node dist/fetch-article-cli.js <url> --summary
+```
+
+详细说明见 [container/ARTICLE_FETCHER.md](container/ARTICLE_FETCHER.md)
+
 ## 安全说明
 
 - AI 运行在隔离的 Docker 容器中

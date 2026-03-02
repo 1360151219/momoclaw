@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "mcp": "node dist/mcp-server.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "openai": "^4.72.0"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.34",
+    "@modelcontextprotocol/sdk": "^1.0.4"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
