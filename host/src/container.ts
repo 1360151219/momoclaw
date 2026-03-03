@@ -4,7 +4,7 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import { ContainerResult, PromptPayload } from './types.js';
+import { ContainerResult, PromptPayload, ToolEvent, ToolCall } from './types.js';
 import { config } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +14,7 @@ const CONTAINER_IMAGE = 'miniclaw-agent:latest';
 export async function runContainerAgent(
   payload: PromptPayload,
   onStream?: (chunk: string) => void,
+  onToolEvent?: (event: ToolEvent) => void,
 ): Promise<ContainerResult> {
   const sessionId = payload.session.id;
   const runId = randomBytes(8).toString('hex');
@@ -68,6 +69,8 @@ export async function runContainerAgent(
     const startTime = Date.now();
     let stdout = '';
     let stderr = '';
+    let buffer = '';
+    const toolEventMarker = '__TOOL_EVENT__:';
 
     const child = spawn('docker', dockerArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -77,8 +80,39 @@ export async function runContainerAgent(
     child.stdout?.on('data', (data: Buffer) => {
       const chunk = data.toString();
       stdout += chunk;
-      if (onStream) {
-        onStream(chunk);
+      buffer += chunk;
+
+      // Parse buffer for tool events and text content
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+
+        if (line.startsWith(toolEventMarker)) {
+          // This is a tool event
+          try {
+            const eventJson = line.slice(toolEventMarker.length);
+            const event: ToolEvent = JSON.parse(eventJson);
+            if (onToolEvent) {
+              onToolEvent(event);
+            }
+          } catch {
+            // Ignore invalid tool events
+          }
+        } else if (line) {
+          // This is regular text content
+          if (onStream) {
+            onStream(line + '\n');
+          }
+        }
+      }
+
+      // If there's remaining buffer without a newline, send it as text
+      if (buffer && !buffer.includes(toolEventMarker)) {
+        if (onStream) {
+          onStream(buffer);
+        }
+        buffer = '';
       }
     });
 
@@ -98,6 +132,11 @@ export async function runContainerAgent(
     child.on('close', (code) => {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
+
+      // Send any remaining buffer
+      if (buffer && onStream) {
+        onStream(buffer);
+      }
 
       if (code !== 0) {
         resolve({

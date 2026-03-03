@@ -5,22 +5,56 @@ import { createInterface } from 'readline';
 import { stdin as input, stdout as output } from 'process';
 import kleur from 'kleur';
 import { config, getApiConfig } from './config.js';
-import { initDatabase, createSession, getSession, getActiveSession, listSessions, switchSession, deleteSession, updateSessionPrompt, updateSessionModel, updateSessionSdkState, addMessage, getSessionMessages, clearSessionMessages } from './db.js';
-import { runContainerAgent, checkDockerAvailable, buildContainerImage } from './container.js';
-import { PromptPayload } from './types.js';
-import { LoadingSpinner, displayWelcomeBanner, formatPromptPrefix, displayToolCall, displayError, displaySuccess, displaySectionHeader } from './ui.js';
+import {
+  initDatabase,
+  createSession,
+  getSession,
+  getActiveSession,
+  listSessions,
+  switchSession,
+  deleteSession,
+  updateSessionPrompt,
+  updateSessionModel,
+  updateSessionSdkState,
+  addMessage,
+  getSessionMessages,
+  clearSessionMessages,
+} from './db.js';
+import {
+  runContainerAgent,
+  checkDockerAvailable,
+  buildContainerImage,
+} from './container.js';
+import { PromptPayload, ToolEvent } from './types.js';
+import {
+  LoadingSpinner,
+  displayWelcomeBanner,
+  formatPromptPrefix,
+  displayToolCall,
+  displayError,
+  displaySuccess,
+  displaySectionHeader,
+  displayToolUseEvent,
+  displayToolResultEvent,
+} from './ui.js';
 
 const program = new Command();
 
 program
   .name('miniclaw')
-  .description('MiniClaw AI Assistant - A minimal AI assistant with container isolation')
+  .description(
+    'MiniClaw AI Assistant - A minimal AI assistant with container isolation',
+  )
   .version('1.0.0');
 
 // 全局初始化
 async function initialize(): Promise<void> {
   if (!checkDockerAvailable()) {
-    console.error(kleur.red('Error: Docker is not available. Please install and start Docker first.'));
+    console.error(
+      kleur.red(
+        'Error: Docker is not available. Please install and start Docker first.',
+      ),
+    );
     process.exit(1);
   }
 
@@ -28,17 +62,21 @@ async function initialize(): Promise<void> {
 }
 
 // 格式化会话列表
-function formatSessionList(sessions: Awaited<ReturnType<typeof listSessions>>): string {
+function formatSessionList(
+  sessions: Awaited<ReturnType<typeof listSessions>>,
+): string {
   if (sessions.length === 0) {
     return '  No sessions yet. Use "miniclaw new <name>" to create one.';
   }
 
-  return sessions.map(s => {
-    const active = s.isActive ? kleur.green('* ') : '  ';
-    const model = s.model ? kleur.gray(` [${s.model}]`) : '';
-    const date = new Date(s.updatedAt).toLocaleDateString();
-    return `${active}${kleur.cyan(s.id)}${model} ${kleur.gray(`(updated: ${date})`)}`;
-  }).join('\n');
+  return sessions
+    .map((s) => {
+      const active = s.isActive ? kleur.green('* ') : '  ';
+      const model = s.model ? kleur.gray(` [${s.model}]`) : '';
+      const date = new Date(s.updatedAt).toLocaleDateString();
+      return `${active}${kleur.cyan(s.id)}${model} ${kleur.gray(`(updated: ${date})`)}`;
+    })
+    .join('\n');
 }
 
 // 交互式对话模式
@@ -136,18 +174,37 @@ async function interactiveChat(sessionId?: string): Promise<void> {
       let contentBuffer = '';
       let hasStartedOutput = false;
 
+      const handleToolEvent = (event: ToolEvent) => {
+        // console.log('====debug=====', JSON.stringify(event));
+        // Ensure spinner is stopped before displaying tool events
+        if (!hasStartedOutput) {
+          spinner.stop();
+          hasStartedOutput = true;
+        }
+
+        if (event.type === 'tool_use') {
+          displayToolUseEvent(event.toolCall, hasStartedOutput);
+        } else if (event.type === 'tool_result') {
+          displayToolResultEvent(event.toolCallId, event.result, event.subtype);
+        }
+      };
+
       try {
-        const result = await runContainerAgent(payload, (chunk) => {
-          // Clear spinner on first content
-          if (!hasStartedOutput) {
-            spinner.stop();
-            hasStartedOutput = true;
-            // Add a newline before assistant response
-            console.log();
-          }
-          process.stdout.write(chunk);
-          contentBuffer += chunk;
-        });
+        const result = await runContainerAgent(
+          payload,
+          (chunk) => {
+            // Clear spinner on first content
+            if (!hasStartedOutput) {
+              spinner.stop();
+              hasStartedOutput = true;
+              // Add a newline before assistant response
+              console.log();
+            }
+            process.stdout.write(chunk);
+            contentBuffer += chunk;
+          },
+          handleToolEvent,
+        );
 
         // If spinner still running, stop it
         if (!hasStartedOutput) {
@@ -156,15 +213,6 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
         if (result.success) {
           const finalContent = contentBuffer || result.content;
-
-          // Display tool calls if any
-          if (result.toolCalls && result.toolCalls.length > 0) {
-            console.log();
-            displaySectionHeader('Tool Calls', '🔧');
-            result.toolCalls.forEach((toolCall, index) => {
-              displayToolCall(toolCall, index);
-            });
-          }
 
           // Ensure output ends with newline
           if (contentBuffer && !contentBuffer.endsWith('\n')) {
@@ -178,7 +226,11 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
           // Update SDK session state
           if (result.sdkSessionId || result.sdkResumeAt) {
-            updateSessionSdkState(session!.id, result.sdkSessionId, result.sdkResumeAt);
+            updateSessionSdkState(
+              session!.id,
+              result.sdkSessionId,
+              result.sdkResumeAt,
+            );
           }
         } else {
           displayError(result.error || 'Unknown error');
@@ -206,12 +258,20 @@ program
   .command('new <id>')
   .description('Create a new session')
   .option('-n, --name <name>', 'Session display name')
-  .option('-m, --model <model>', 'Model to use (e.g., anthropic/claude-sonnet-4-6)')
+  .option(
+    '-m, --model <model>',
+    'Model to use (e.g., anthropic/claude-sonnet-4-6)',
+  )
   .option('-s, --system <prompt>', 'System prompt')
   .action((id, options) => {
     try {
       const name = options.name || id;
-      const session = createSession(id, name, options.system || '', options.model);
+      const session = createSession(
+        id,
+        name,
+        options.system || '',
+        options.model,
+      );
       console.log(kleur.green(`Created session: ${session.id}`));
       if (session.model) {
         console.log(kleur.gray(`Model: ${session.model}`));
@@ -286,9 +346,11 @@ program.action(() => {
 });
 
 // Run
-initialize().then(() => {
-  program.parse();
-}).catch(err => {
-  console.error(kleur.red(`Initialization error: ${err}`));
-  process.exit(1);
-});
+initialize()
+  .then(() => {
+    program.parse();
+  })
+  .catch((err) => {
+    console.error(kleur.red(`Initialization error: ${err}`));
+    process.exit(1);
+  });

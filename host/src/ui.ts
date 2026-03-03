@@ -4,7 +4,7 @@
  */
 
 import kleur from 'kleur';
-import { ToolCall } from './types.js';
+import { ToolCall, ToolEvent } from './types.js';
 
 // Spinner animation frames
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -186,5 +186,56 @@ export function displayError(message: string): void {
 export function displaySuccess(message: string): void {
   console.log();
   console.log(kleur.green(`✓ ${message}`));
+  console.log();
+}
+
+/**
+ * Display a real-time tool use event (as it happens)
+ */
+export function displayToolUseEvent(toolCall: ToolCall, hasStartedOutput: boolean): void {
+  const icon = '🔧';
+  const toolName = kleur.magenta(toolCall.name);
+  const args = JSON.stringify(toolCall.arguments, null, 2);
+
+  if (!hasStartedOutput) {
+    console.log();
+  }
+  console.log(`${kleur.gray('─'.repeat(50))}`);
+  console.log(`${icon} ${kleur.bold('Using Tool')}: ${toolName}`);
+  console.log();
+
+  // Display arguments in a readable format
+  const argsLines = args.split('\n');
+  for (const line of argsLines) {
+    console.log(`  ${kleur.gray(line)}`);
+  }
+  console.log(`${kleur.gray('─'.repeat(50))}`);
+}
+
+/**
+ * Display a real-time tool result event (as it happens)
+ */
+export function displayToolResultEvent(toolCallId: string, result: string, subtype?: string): void {
+  const icon = '✅';
+  const status = subtype ? kleur.cyan(subtype) : kleur.cyan('complete');
+
+  console.log();
+  console.log(`${icon} Tool ${status}`);
+
+  // Display a preview of the result (truncated if too long)
+  let resultPreview = result.trim();
+  if (resultPreview.length > 500) {
+    resultPreview = resultPreview.slice(0, 500) + '... (truncated)';
+  }
+
+  if (resultPreview) {
+    const resultLines = resultPreview.split('\n');
+    for (const line of resultLines.slice(0, 10)) { // Show max 10 lines
+      console.log(`  ${kleur.gray(line)}`);
+    }
+    if (resultLines.length > 10) {
+      console.log(`  ${kleur.gray('... (more lines)')}`);
+    }
+  }
   console.log();
 }

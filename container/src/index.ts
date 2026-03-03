@@ -4,7 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
-import { PromptPayload, ContainerResult, ToolCall } from './types.js';
+import {
+  PromptPayload,
+  ContainerResult,
+  ToolCall,
+  ToolEvent,
+} from './types.js';
 import { createArticleFetcherMcpServer } from './mcp/index.js';
 
 const INPUT_FILE = process.env.INPUT_FILE || '/workspace/input/payload.json';
@@ -45,6 +50,7 @@ function writeOutput(output: ContainerResult): void {
 async function runAgentWithSDK(
   payload: PromptPayload,
   onStream?: (text: string) => void,
+  onToolEvent?: (event: ToolEvent) => void,
 ): Promise<{
   content: string;
   toolCalls: ToolCall[];
@@ -132,6 +138,10 @@ async function runAgentWithSDK(
     const msgType = message.type;
     log(`Received message: type=${msgType}`);
 
+    // if (onStream) {
+    //   onStream('=====debug=====' + JSON.stringify(message) + '\n');
+    // }
+
     if (
       message.type === 'system' &&
       message.subtype === 'init' &&
@@ -143,10 +153,7 @@ async function runAgentWithSDK(
     }
 
     if (message.type === 'assistant' && 'message' in message) {
-      const assistantMsg = message as {
-        message: { content: any[] };
-        uuid?: string;
-      };
+      const assistantMsg = message;
       // 捕获 assistant uuid 用于 resumeSessionAt
       if (assistantMsg.uuid) {
         sdkResumeAt = assistantMsg.uuid;
@@ -164,24 +171,66 @@ async function runAgentWithSDK(
               }
               onStream(text);
             }
+          } else if (block.type === 'thinking') {
+            if (onStream) {
+              onStream('Thinking: ' + block.thinking + '\n');
+            }
           } else if (block.type === 'tool_use') {
-            // 记录工具调用
-            toolCalls.push({
+            const toolCall: ToolCall = {
               id: block.id,
               name: block.name,
               arguments: block.input as Record<string, unknown>,
-            });
+            };
+            // 记录工具调用
+            toolCalls.push(toolCall);
+            // 实时发送 tool_use 事件
+            if (onToolEvent) {
+              onToolEvent({ type: 'tool_use', toolCall });
+            }
           }
         }
       }
     } else if (message.type === 'result' && 'result' in message) {
-      const resultMsg = message as { result?: string; subtype?: string };
-      if (resultMsg.result) {
-        // 结果消息也添加到内容中（用于工具结果展示）
-        log(`Result: ${resultMsg.subtype}`);
+      const resultMsg = message as {
+        result?: string;
+        subtype?: string;
+        tool_call_id?: string;
+      };
+      if (resultMsg.result !== undefined && resultMsg.tool_call_id) {
+        log(`Result for tool ${resultMsg.tool_call_id}: ${resultMsg.subtype}`);
+        // 实时发送 tool_result 事件
+        if (onToolEvent) {
+          onToolEvent({
+            type: 'tool_result',
+            toolCallId: resultMsg.tool_call_id,
+            result: resultMsg.result,
+            subtype: resultMsg.subtype,
+          });
+        }
+        // 更新 toolCall 的 result
+        const toolCall = toolCalls.find(
+          (tc) => tc.id === resultMsg.tool_call_id,
+        );
+        if (toolCall) {
+          toolCall.result = resultMsg.result;
+        }
       }
     } else if (message.type === 'user' && 'message' in message) {
-      // 用户消息（工具结果）
+      const userMsg = message.message;
+      if (Array.isArray(userMsg.content)) {
+        for (const block of userMsg.content) {
+          if (block.type === 'tool_result' && block.content) {
+            // 用户消息（工具结果）
+            if (onToolEvent) {
+              onToolEvent({
+                type: 'tool_result',
+                toolCallId: block.tool_use_id,
+                result: block.content,
+              });
+            }
+          }
+        }
+      }
     }
   }
 
@@ -218,10 +267,18 @@ async function main(): Promise<void> {
     }
 
     let contentBuffer = '';
-    const result = await runAgentWithSDK(payload, (chunk) => {
-      process.stdout.write(chunk);
-      contentBuffer += chunk;
-    });
+    const result = await runAgentWithSDK(
+      payload,
+      (chunk) => {
+        process.stdout.write(chunk);
+        contentBuffer += chunk;
+      },
+      (toolEvent) => {
+        // Send tool events using a special marker protocol
+        // Format: __TOOL_EVENT__:{JSON}\n
+        process.stdout.write(`\n__TOOL_EVENT__:${JSON.stringify(toolEvent)}\n`);
+      },
+    );
 
     const output: ContainerResult = {
       success: true,

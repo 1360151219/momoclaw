@@ -62,3 +62,9 @@ export interface Config {
   dbPath: string;
   defaultSystemPrompt: string;
 }
+
+// Stream event types for real-time tool call display
+export type ToolEvent =
+  | { type: 'tool_use'; toolCall: ToolCall }
+  | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string };
+
