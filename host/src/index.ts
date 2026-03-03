@@ -8,6 +8,7 @@ import { config, getApiConfig } from './config.js';
 import { initDatabase, createSession, getSession, getActiveSession, listSessions, switchSession, deleteSession, updateSessionPrompt, updateSessionModel, updateSessionSdkState, addMessage, getSessionMessages, clearSessionMessages } from './db.js';
 import { runContainerAgent, checkDockerAvailable, buildContainerImage } from './container.js';
 import { PromptPayload } from './types.js';
+import { LoadingSpinner, displayWelcomeBanner, formatPromptPrefix, displayToolCall, displayError, displaySuccess, displaySectionHeader } from './ui.js';
 
 const program = new Command();
 
@@ -53,8 +54,8 @@ async function interactiveChat(sessionId?: string): Promise<void> {
   const model = session.model || config.defaultModel;
   const shortModel = model.split('/').pop() || model;
 
-  console.log(kleur.gray(`\nSession: ${kleur.cyan(session.id)} | Model: ${kleur.cyan(shortModel)}`));
-  console.log(kleur.gray('Commands: /model <name> | /system <prompt> | /clear | /exit\n'));
+  // Display welcome banner
+  displayWelcomeBanner(session.id, model);
 
   const rl = createInterface({ input, output });
 
@@ -68,8 +69,8 @@ async function interactiveChat(sessionId?: string): Promise<void> {
     if (isClosed) {
       return;
     }
-    const prefix = `[${session!.id}:${shortModel}]`;
-    rl.question(`${kleur.gray(prefix)} > `, async (input) => {
+    const prompt = formatPromptPrefix(session!.id, shortModel);
+    rl.question(`${prompt} `, async (input) => {
       const trimmed = input.trim();
 
       if (!trimmed) {
@@ -79,7 +80,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
       // 内置命令
       if (trimmed === '/exit' || trimmed === '/quit') {
-        console.log(kleur.gray('Goodbye!'));
+        console.log(kleur.gray('\nGoodbye! 👋\n'));
         isClosed = true;
         rl.close();
         return;
@@ -88,7 +89,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
       if (trimmed === '/clear') {
         clearSessionMessages(session!.id);
         updateSessionSdkState(session!.id, undefined, undefined);
-        console.log(kleur.gray('Session history cleared.'));
+        displaySuccess('Session history cleared');
         askQuestion();
         return;
       }
@@ -97,7 +98,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         const newModel = trimmed.slice(7).trim();
         updateSessionModel(session!.id, newModel);
         session = getSession(session!.id);
-        console.log(kleur.gray(`Model updated to: ${newModel}`));
+        displaySuccess(`Model updated to: ${newModel}`);
         askQuestion();
         return;
       }
@@ -106,7 +107,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         const newPrompt = trimmed.slice(8).trim();
         updateSessionPrompt(session!.id, newPrompt);
         session = getSession(session!.id);
-        console.log(kleur.gray('System prompt updated.'));
+        displaySuccess('System prompt updated');
         askQuestion();
         return;
       }
@@ -128,46 +129,67 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         apiConfig: getApiConfig(config, session!.model || undefined),
       };
 
-      process.stdout.write(kleur.gray('Thinking...'));
+      // Start loading spinner
+      const spinner = new LoadingSpinner('Thinking');
+      spinner.start();
+
       let contentBuffer = '';
-      let thinkingCleared = false;
+      let hasStartedOutput = false;
 
       try {
         const result = await runContainerAgent(payload, (chunk) => {
-          // 只在第一次收到内容时清除"Thinking..."
-          if (!thinkingCleared) {
-            process.stdout.write('\r' + ' '.repeat(20) + '\r');
-            thinkingCleared = true;
+          // Clear spinner on first content
+          if (!hasStartedOutput) {
+            spinner.stop();
+            hasStartedOutput = true;
+            // Add a newline before assistant response
+            console.log();
           }
           process.stdout.write(chunk);
           contentBuffer += chunk;
         });
 
-        // 如果没有内容，清除"Thinking..."
-        if (!thinkingCleared) {
-          process.stdout.write('\r' + ' '.repeat(20) + '\r');
+        // If spinner still running, stop it
+        if (!hasStartedOutput) {
+          spinner.stop();
         }
 
         if (result.success) {
           const finalContent = contentBuffer || result.content;
-          // 确保输出以换行结尾
+
+          // Display tool calls if any
+          if (result.toolCalls && result.toolCalls.length > 0) {
+            console.log();
+            displaySectionHeader('Tool Calls', '🔧');
+            result.toolCalls.forEach((toolCall, index) => {
+              displayToolCall(toolCall, index);
+            });
+          }
+
+          // Ensure output ends with newline
           if (contentBuffer && !contentBuffer.endsWith('\n')) {
-            process.stdout.write('\n');
+            console.log();
           } else if (!contentBuffer && finalContent) {
+            console.log();
             console.log(finalContent);
           }
+
           addMessage(session!.id, 'assistant', finalContent, result.toolCalls);
-          // 更新 SDK session 状态
+
+          // Update SDK session state
           if (result.sdkSessionId || result.sdkResumeAt) {
             updateSessionSdkState(session!.id, result.sdkSessionId, result.sdkResumeAt);
           }
         } else {
-          console.error(kleur.red(`Error: ${result.error}`));
+          displayError(result.error || 'Unknown error');
         }
       } catch (err) {
-        process.stdout.write('\r' + ' '.repeat(20) + '\r');
-        console.error(kleur.red(`Container error: ${err}`));
+        spinner.stop();
+        displayError(`Container error: ${err}`);
       }
+
+      // Add a blank line before prompt
+      console.log();
 
       // 延迟显示提示符，确保所有输出完成
       setTimeout(() => {

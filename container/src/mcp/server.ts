@@ -45,14 +45,18 @@ export function createArticleFetcherMcpServer() {
         'fetch_zhihu_article',
         '抓取知乎专栏文章的内容。支持 zhuanlan.zhihu.com 域名。',
         {
-          url: z.string().describe('知乎文章的完整 URL，例如 https://zhuanlan.zhihu.com/p/12345678'),
+          url: z
+            .string()
+            .describe(
+              '知乎文章的完整 URL，例如 https://zhuanlan.zhihu.com/p/12345678',
+            ),
         },
         async ({ url }) => {
           const article = await fetcher.fetchZhihuArticle(url);
           return {
             content: [{ type: 'text' as const, text: formatArticle(article) }],
           };
-        }
+        },
       ),
       tool(
         'fetch_wechat_article',
@@ -65,35 +69,45 @@ export function createArticleFetcherMcpServer() {
           return {
             content: [{ type: 'text' as const, text: formatArticle(article) }],
           };
-        }
+        },
       ),
       tool(
         'fetch_generic_article',
         '通用文章抓取工具，尝试提取任意网页的正文内容。支持掘金、CSDN、博客园等平台。',
         {
           url: z.string().describe('文章的完整 URL'),
-          selector: z.string().optional().describe('可选的 CSS 选择器，用于指定正文容器'),
+          selector: z
+            .string()
+            .optional()
+            .describe('可选的 CSS 选择器，用于指定正文容器'),
         },
         async ({ url, selector }) => {
           const article = await fetcher.fetchGenericArticle(url, selector);
           return {
             content: [{ type: 'text' as const, text: formatArticle(article) }],
           };
-        }
+        },
       ),
       tool(
         'summarize_article',
         '获取文章并返回结构化的摘要，包括标题、作者、关键要点等。',
         {
           url: z.string().describe('文章的完整 URL'),
-          platform: z.enum(['zhihu', 'wechat', 'juejin', 'csdn', 'auto']).optional().describe('平台类型：zhihu、wechat、juejin、csdn 或 auto（自动检测）'),
+          platform: z
+            .enum(['zhihu', 'wechat', 'juejin', 'csdn', 'auto'])
+            .optional()
+            .describe(
+              '平台类型：zhihu、wechat、juejin、csdn 或 auto（自动检测）',
+            ),
         },
         async ({ url, platform = 'auto' }) => {
           const article = await fetcher.summarizeArticle(url, platform);
           return {
-            content: [{ type: 'text' as const, text: JSON.stringify(article, null, 2) }],
+            content: [
+              { type: 'text' as const, text: JSON.stringify(article, null, 2) },
+            ],
           };
-        }
+        },
       ),
     ],
   });
