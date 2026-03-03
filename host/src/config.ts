@@ -21,11 +21,37 @@ Rules:
 
 Enjoy helping the user!`;
 
+function loadMemoryFile(workspaceDir: string, filePath: string): string {
+  const fullPath = resolve(workspaceDir, filePath);
+  if (existsSync(fullPath)) {
+    try {
+      return readFileSync(fullPath, 'utf-8').trim();
+    } catch (err) {
+      console.warn(`Warning: Failed to read ${fullPath}`);
+    }
+  }
+  return '';
+}
+
 function loadClaudeMd(workspaceDir: string): string {
   const claudeMdPath = resolve(workspaceDir, 'CLAUDE.md');
   if (existsSync(claudeMdPath)) {
     try {
-      return readFileSync(claudeMdPath, 'utf-8');
+      let content = readFileSync(claudeMdPath, 'utf-8');
+
+      // Replace @memory/SOUL.md with actual content
+      content = content.replace(/@memory\/SOUL\.md/g, () => {
+        const soulContent = loadMemoryFile(workspaceDir, 'memory/SOUL.md');
+        return soulContent ? `## SOUL.md\n\n${soulContent}` : '@memory/SOUL.md';
+      });
+
+      // Replace @memory/USER.md with actual content
+      content = content.replace(/@memory\/USER\.md/g, () => {
+        const userContent = loadMemoryFile(workspaceDir, 'memory/USER.md');
+        return userContent ? `## USER.md\n\n${userContent}` : '@memory/USER.md';
+      });
+
+      return content;
     } catch (err) {
       console.warn(`Warning: Failed to read ${claudeMdPath}, using fallback system prompt`);
     }
