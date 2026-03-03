@@ -9,5 +9,5 @@
     "rootDir": "./src",
     "skipLibCheck": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/index.ts", "src/article-fetcher.ts", "src/types.ts"]
 }

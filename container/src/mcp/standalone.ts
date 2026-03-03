@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 独立的 MCP 服务器
+ * 可以作为单独进程运行，通过 stdio 通信
+ */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -7,7 +11,8 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ArticleFetcher } from './article-fetcher.js';
+import { ArticleFetcher } from '../article-fetcher.js';
+import { formatArticle } from './server.js';
 
 const fetcher = new ArticleFetcher();
 
@@ -158,27 +163,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 });
-
-// 格式化文章为可读文本
-function formatArticle(article: {
-  title: string;
-  author?: string;
-  content: string;
-  url: string;
-  publishTime?: string;
-}): string {
-  const parts = [
-    `标题：${article.title}`,
-    article.author ? `作者：${article.author}` : '',
-    article.publishTime ? `发布时间：${article.publishTime}` : '',
-    `URL：${article.url}`,
-    '',
-    '--- 正文 ---',
-    '',
-    article.content,
-  ];
-  return parts.filter(Boolean).join('\n');
-}
 
 // 启动服务器
 async function main() {

@@ -5,10 +5,14 @@ import path from 'path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 import { PromptPayload, ContainerResult, ToolCall } from './types.js';
+import { createArticleFetcherMcpServer } from './mcp/index.js';
 
 const INPUT_FILE = process.env.INPUT_FILE || '/workspace/input/payload.json';
 const OUTPUT_FILE = process.env.OUTPUT_FILE || '/workspace/output/result.json';
 const WORKSPACE_DIR = '/workspace/files';
+
+// 创建 MCP 服务器
+const articleFetcherMcpServer = createArticleFetcherMcpServer();
 
 interface SDKMessage {
   type: 'user' | 'assistant' | 'result' | 'system';
@@ -120,6 +124,9 @@ async function runAgentWithSDK(
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       model: apiConfig.model,
+      mcpServers: {
+        'article-fetcher': articleFetcherMcpServer,
+      },
     },
   })) {
     const msgType = message.type;
