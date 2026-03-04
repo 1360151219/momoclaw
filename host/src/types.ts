@@ -99,7 +99,7 @@ export interface ScheduledTask {
   sessionId: string;
   prompt: string;
   scheduleType: ScheduleType;
-  scheduleValue: string;  // cron expression, interval seconds, or ISO timestamp
+  scheduleValue: string;  // cron expression, interval seconds, or timestamp in milliseconds
   status: TaskStatus;
   nextRun: number;
   lastRun?: number;

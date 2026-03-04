@@ -4,7 +4,7 @@
  * 支持三种调度类型:
  * - cron: Cron 表达式 (如 "0 9 * * *" 每天9点)
  * - interval: 间隔秒数 (如 "3600" 每小时)
- * - once: 一次性任务，ISO 8601 时间戳
+ * - once: 一次性任务，毫秒时间戳
  */
 
 import { randomBytes } from 'crypto';
@@ -384,8 +384,17 @@ export class CronService {
 
     switch (scheduleType) {
       case 'once': {
-        // ISO 8601 时间戳
-        const timestamp = new Date(scheduleValue).getTime();
+        // 毫秒时间戳
+        const timestamp = new Date(Number(scheduleValue)).getTime();
+        // console.log(
+        //   '[calculateInitialNextRun scheduleType=noce]',
+        //   'scheduleValue: ',
+        //   scheduleValue,
+        //   'nextRun: ',
+        //   new Date(timestamp).toLocaleTimeString(),
+        //   'now: ',
+        //   new Date(now).toLocaleTimeString(),
+        // );
         return isNaN(timestamp) ? now : timestamp;
       }
 

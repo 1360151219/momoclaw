@@ -556,7 +556,7 @@ program
   .description('Add a scheduled task')
   .requiredOption('-p, --prompt <prompt>', 'The prompt to execute')
   .option('-t, --type <type>', 'Schedule type: cron | interval | once', 'once')
-  .option('-v, --value <value>', 'Schedule value (cron expr, seconds, or ISO timestamp)')
+  .option('-v, --value <value>', 'Schedule value (cron expr, seconds, or timestamp in milliseconds)')
   .action((sessionId, options) => {
     const session = getSession(sessionId);
     if (!session) {

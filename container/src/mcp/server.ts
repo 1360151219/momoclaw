@@ -112,7 +112,11 @@ export function createArticleFetcherMcpServer() {
       // 定时任务相关工具
       tool(
         'schedule_task',
-        '创建定时任务，支持 cron/interval/once 三种类型',
+        '创建定时任务，支持 cron/interval/once 三种类型。根据 scheduleType 选择合适的 scheduleValue 格式，确保时间格式正确\n'
+        + '根据 scheduleType 不同格式要求如下：' +
+        '【cron】标准 cron 表达式，如 "0 9 * * *"（每天9点）、"*/5 * * * *"（每5分钟）；' +
+        '【interval】间隔秒数，如 "3600"（1小时）、"60"（1分钟）；' +
+        '【once】时间戳形式，如 "1709542800000"（2024年3月4日9点），注意：⚠️ 禁止使用相对时间（如30s、1h、tomorrow）',
         {
           sessionId: z.string().describe('关联的会话ID'),
           prompt: z.string().describe('定时执行的提示词'),
@@ -122,7 +126,10 @@ export function createArticleFetcherMcpServer() {
           scheduleValue: z
             .string()
             .describe(
-              '根据调度类型不同，支持的参数分别为：cron表达式、间隔秒数、表示执行时机的毫秒级时间戳',
+              '调度参数，根据 scheduleType 不同格式要求如下：' +
+              '【cron】标准 cron 表达式，如 "0 9 * * *"（每天9点）、"*/5 * * * *"（每5分钟）；' +
+              '【interval】间隔秒数，如 "3600"（1小时）、"60"（1分钟）；' +
+              '【once】时间戳形式，如 "1709542800000"（2024年3月4日9点），注意：⚠️ 禁止使用相对时间（如30s、1h、tomorrow）'
             ),
         },
         async ({ sessionId, prompt, scheduleType, scheduleValue }) => {

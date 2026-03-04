@@ -318,6 +318,7 @@ export function createScheduledTask(
   `);
 
   stmt.run(id, sessionId, prompt, scheduleType, scheduleValue, nextRun, now, now);
+  // console.log('[createScheduledTask]', 'scheduleValue: ', scheduleValue, 'nextRun: ', new Date(nextRun).toLocaleTimeString(), 'now: ', new Date(now).toLocaleTimeString());
 
   return {
     id,

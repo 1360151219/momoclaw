@@ -10,7 +10,8 @@
       "WebFetch(domain:mp.weixin.qq.com)",
       "Bash(rm:*)",
       "Bash(ls:*)",
-      "Bash(find /Users/bytedance/workspace/momoclaw/host -type f -name \"*.ts\" -o -name \"*.tsx\" 2>/dev/null | head -20)"
+      "Bash(find /Users/bytedance/workspace/momoclaw/host -type f -name \"*.ts\" -o -name \"*.tsx\" 2>/dev/null | head -20)",
+      "Bash(npm test:*)"
     ]
   }
 }
