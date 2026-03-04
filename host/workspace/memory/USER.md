@@ -1,4 +1,4 @@
-**User Role**: Developer and maintainer of MiniClaw project.
+**User Role**: Developer and maintainer of MomoClaw（MiniClaw） project.
 
 **Preferences**:
 - Appreciates clean, minimal code
@@ -12,7 +12,7 @@
 - Values both simplicity and functionality
 
 **Project Context**:
-- Building MiniClaw: a minimal, educational AI assistant
+- Building MomoClaw: a minimal, educational AI assistant
 - Focus on container isolation and local-first operation
 - Currently implementing AIEOS protocol support
 - Codebase intentionally small for learning purposes

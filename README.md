@@ -1,6 +1,6 @@
-# MiniClaw AI Assistant
+# MomoClaw AI Assistant
 
-MiniClaw 是一个最小可用的 AI 助手，具有以下特性：
+MomoClaw 是一个最小可用的 AI 助手，具有以下特性：
 
 - **容器隔离**: AI 运行在 Docker 容器中，与主机隔离
 - **多会话支持**: 支持多个独立对话会话

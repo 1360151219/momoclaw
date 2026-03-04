@@ -1,7 +1,7 @@
 {
-  "name": "miniclaw",
+  "name": "momoclaw",
   "version": "1.0.0",
-  "description": "MiniClaw AI Assistant - A minimal AI assistant with container isolation",
+  "description": "MomoClaw AI Assistant - A minimal AI assistant with container isolation",
   "scripts": {
     "setup": "cd host && npm install && cd ../container && npm install",
     "build": "cd host && npm run build && cd ../container && npm run build",

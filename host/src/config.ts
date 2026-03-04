@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'fs';
 
 dotenv.config();
 
-const FALLBACK_SYSTEM_PROMPT = `You are MiniClaw, a helpful AI assistant running in an isolated Docker container, powered by Claude Agent SDK.
+const FALLBACK_SYSTEM_PROMPT = `You are MomoClaw, a helpful AI assistant running in an isolated Docker container, powered by Claude Agent SDK.
 
 You have access to a full set of developer tools including:
 - File operations: Read, Write, Edit, Glob, Grep

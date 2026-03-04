@@ -28,7 +28,7 @@ interface SDKMessage {
 }
 
 function log(message: string): void {
-  console.error(`[miniclaw-agent] ${message}`);
+  console.error(`[momoclaw-agent] ${message}`);
 }
 
 async function readInput(): Promise<PromptPayload> {

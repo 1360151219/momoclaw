@@ -78,7 +78,7 @@ export async function runContainerAgent(
     `-v`,
     `${workspacePath}:/workspace/files:rw`,
     `-v`,
-    `${projectRootPath}:/workspace/project:rw`, // 挂载项目根目录
+    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`, // 挂载项目根目录
     `-v`,
     `${inputDir}:/workspace/input:ro`,
     `-v`,

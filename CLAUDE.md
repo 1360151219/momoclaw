@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**MiniClaw (MomoClaw)** is a minimal, educational AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety. The codebase is intentionally small (~600 lines total) to be easy to understand and modify.
+**MiniClaw (MomoClaw)** is a minimal, educational AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety. The codebase is intentionally small to be easy to understand and modify.
 
 This is a simplified version derived from the NanoClaw project. The `/nanoclaw` directory contains the full NanoClaw project as a reference.
 
@@ -58,6 +58,9 @@ node dist/index.js                        # Default: interactive chat
 
 # Build container image
 node dist/index.js build
+
+# Memory management
+node dist/index.js memory [date]           # View memory files
 ```
 
 ### Interactive Chat Commands
@@ -65,8 +68,39 @@ node dist/index.js build
 Within chat mode:
 - `/model <name>` - Switch model (e.g., `anthropic/claude-3-5-sonnet-20241022`)
 - `/system <prompt>` - Update system prompt
+- `/memory` - View today's memory and available dates
+- `/memory <date>` - View memory for specific date
 - `/clear` - Clear session history
 - `/exit` - Quit
+
+## Key Features
+
+### AIEOS Protocol (AI Personas)
+
+MiniClaw uses an AIEOS-inspired system prompt loading:
+- `workspace/memory/SOUL.md` - AI identity and personality
+- `workspace/memory/USER.md` - User preferences and context
+- These are automatically loaded and merged into the system prompt
+
+### Daily Memory System
+
+- Organized by date in `workspace/memory/YYYY-MM-DD/MEMORY.md`
+- AI can read/write memory files to remember important information
+- Recent memory (today + yesterday if available) is automatically provided in context
+- `/memory` command to view and manage memory
+
+### Real-time Thinking & Tool Events
+
+The UI displays events in the order they happen:
+- 💭 Thinking - AI's internal thought process
+- 🔧 Tool Use - What tool the AI is using
+- ✅ Tool Result - Result of the tool execution
+
+### Self-Access to Code
+
+The project code is mounted read-only at `/workspace/project` inside containers:
+- AI can read its own implementation
+- Code modifications require manual copying from the host
 
 ## Development Workflow
 
@@ -119,10 +153,15 @@ Sessions are stored in SQLite (`host/data/miniclaw.db`):
 
 ### Container Isolation
 
-- Workspace: `./workspace` → `/workspace/files` (rw)
+- `/workspace/files` - User workspace (rw, from host/workspace)
+- `/workspace/project` - Project source code (ro, from project root)
 - Temp input/output directories created per-run
 - Resource limits: 2GB memory, 2 CPUs
 - Auto-removed after exit
+
+### Container Shell Configuration
+
+The container includes bash and sets `SHELL=/bin/bash` for Claude Agent SDK
 
 ### Configuration
 
@@ -147,17 +186,19 @@ DEFAULT_SYSTEM_PROMPT=
 | `host/src/index.ts` | CLI entry point, Commander.js commands |
 | `host/src/db.ts` | SQLite session/message storage |
 | `host/src/container.ts` | Docker container orchestration |
-| `host/src/config.ts` | Environment configuration |
+| `host/src/config.ts` | Environment configuration, AIEOS loading |
+| `host/src/memory.ts` | Daily memory system |
+| `host/src/ui.ts` | UI components and event display |
 | `container/src/index.ts` | Claude Agent SDK integration |
 | `host/src/types.ts`, `container/src/types.ts` | Shared type definitions |
 
 ## Model Format
 
 Models are specified as `provider/model-name`:
-- `anthropic/claude-3-5-sonnet-20241022`
-- `anthropic/claude-3-opus-20240229`
-- `openai/kimi-latest`
-- `openai/gpt-4`
+- `anthropic/claude-3-5-sonnet-20241022
+- `anthropic/claude-3-opus-20240229
+- `openai/kimi-latest
+- `openai/gpt-4
 
 Note: Currently only Anthropic provider is fully supported by the Claude Agent SDK.
 
