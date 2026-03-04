@@ -36,6 +36,7 @@ import {
   displaySectionHeader,
   displayToolUseEvent,
   displayToolResultEvent,
+  displayThinkingEvent,
 } from './ui.js';
 
 const program = new Command();
@@ -186,6 +187,8 @@ async function interactiveChat(sessionId?: string): Promise<void> {
           displayToolUseEvent(event.toolCall, hasStartedOutput);
         } else if (event.type === 'tool_result') {
           displayToolResultEvent(event.toolCallId, event.result, event.subtype);
+        } else if (event.type === 'thinking') {
+          displayThinkingEvent(event.content, hasStartedOutput);
         }
       };
 

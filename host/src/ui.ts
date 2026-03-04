@@ -219,8 +219,9 @@ export function displayToolResultEvent(toolCallId: string, result: string, subty
   const icon = '✅';
   const status = subtype ? kleur.cyan(subtype) : kleur.cyan('complete');
 
+  console.log(`${kleur.gray('─'.repeat(50))}`);
+  console.log(`${icon} ${kleur.bold('Tool Result')}: ${status}`);
   console.log();
-  console.log(`${icon} Tool ${status}`);
 
   // Display a preview of the result (truncated if too long)
   let resultPreview = result.trim();
@@ -237,5 +238,36 @@ export function displayToolResultEvent(toolCallId: string, result: string, subty
       console.log(`  ${kleur.gray('... (more lines)')}`);
     }
   }
+  console.log(`${kleur.gray('─'.repeat(50))}`);
+}
+
+/**
+ * Display a thinking event (AI's internal thinking)
+ */
+export function displayThinkingEvent(thinking: string, hasStartedOutput: boolean): void {
+  const icon = '💭';
+
+  if (!hasStartedOutput) {
+    console.log();
+  }
+  console.log(`${kleur.gray('─'.repeat(50))}`);
+  console.log(`${icon} ${kleur.bold('Thinking')}`);
   console.log();
+
+  // Display thinking content (truncated if too long)
+  let thinkingContent = thinking.trim();
+  if (thinkingContent.length > 1000) {
+    thinkingContent = thinkingContent.slice(0, 1000) + '... (truncated)';
+  }
+
+  if (thinkingContent) {
+    const thinkingLines = thinkingContent.split('\n');
+    for (const line of thinkingLines.slice(0, 20)) { // Show max 20 lines
+      console.log(`  ${kleur.gray(line)}`);
+    }
+    if (thinkingLines.length > 20) {
+      console.log(`  ${kleur.gray('... (more lines)')}`);
+    }
+  }
+  console.log(`${kleur.gray('─'.repeat(50))}`);
 }

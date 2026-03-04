@@ -172,8 +172,9 @@ async function runAgentWithSDK(
               onStream(text);
             }
           } else if (block.type === 'thinking') {
-            if (onStream) {
-              onStream('Thinking: ' + block.thinking + '\n');
+            // 实时发送 thinking 事件
+            if (onToolEvent) {
+              onToolEvent({ type: 'thinking', content: block.thinking });
             }
           } else if (block.type === 'tool_use') {
             const toolCall: ToolCall = {

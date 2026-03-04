@@ -64,5 +64,6 @@ export interface ContainerResult {
 // Stream event types for real-time tool call display
 export type ToolEvent =
   | { type: 'tool_use'; toolCall: ToolCall }
-  | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string };
+  | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string }
+  | { type: 'thinking'; content: string };
 
