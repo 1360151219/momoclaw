@@ -10,7 +10,7 @@ import {
   ToolCall,
   ToolEvent,
 } from './types.js';
-import { createArticleFetcherMcpServer } from './mcp/index.js';
+import { createArticleFetcherMcpServer, CRON_TOOLS } from './mcp/index.js';
 
 const INPUT_FILE = process.env.INPUT_FILE || '/workspace/input/payload.json';
 const OUTPUT_FILE = process.env.OUTPUT_FILE || '/workspace/output/result.json';
@@ -100,7 +100,7 @@ async function runAgentWithSDK(
 
   // 如果有 sdkSessionId，直接使用当前用户输入（SDK会管理历史）
   // 如果没有 sdkSessionId，需要构建完整的 prompt 包含历史
-  let fullPrompt = '';
+  let fullPrompt = `## Current Timestamp: ${new Date().getTime()}\n`;
   if (session.sdkSessionId) {
     // 使用 SDK 的 resume 功能，只需要传当前用户输入
     fullPrompt = userInput;
@@ -142,6 +142,9 @@ async function runAgentWithSDK(
   let hasStartedStreaming = false;
   let sdkSessionId: string | undefined = session.sdkSessionId;
   let sdkResumeAt: string | undefined;
+
+  // Helper function to check if a tool is a cron tool
+  const isCronTool = (name: string): boolean => CRON_TOOLS.includes(name);
 
   // 确保 workspace 目录存在
   if (!fs.existsSync(WORKSPACE_DIR)) {
@@ -232,7 +235,8 @@ async function runAgentWithSDK(
               name: block.name,
               arguments: block.input as Record<string, unknown>,
             };
-            // 记录工具调用
+
+            // 记录普通工具调用
             toolCalls.push(toolCall);
             // 实时发送 tool_use 事件
             if (onToolEvent) {
@@ -242,41 +246,25 @@ async function runAgentWithSDK(
         }
       }
     } else if (message.type === 'result' && 'result' in message) {
-      const resultMsg = message as {
-        result?: string;
-        subtype?: string;
-        tool_call_id?: string;
-      };
-      if (resultMsg.result !== undefined && resultMsg.tool_call_id) {
-        log(`Result for tool ${resultMsg.tool_call_id}: ${resultMsg.subtype}`);
-        // 实时发送 tool_result 事件
-        if (onToolEvent) {
-          onToolEvent({
-            type: 'tool_result',
-            toolCallId: resultMsg.tool_call_id,
-            result: resultMsg.result,
-            subtype: resultMsg.subtype,
-          });
-        }
-        // 更新 toolCall 的 result
-        const toolCall = toolCalls.find(
-          (tc) => tc.id === resultMsg.tool_call_id,
-        );
-        if (toolCall) {
-          toolCall.result = resultMsg.result;
-        }
-      }
+      // 对话结束
     } else if (message.type === 'user' && 'message' in message) {
       const userMsg = message.message;
       if (Array.isArray(userMsg.content)) {
         for (const block of userMsg.content) {
           if (block.type === 'tool_result' && block.content) {
+            // 更新 toolCall 的 result
+            const toolCall = toolCalls.find(
+              (tc) => tc.id === block.tool_use_id,
+            );
+            if (toolCall) {
+              toolCall.result = block.content?.[0]?.text;
+            }
             // 用户消息（工具结果）
             if (onToolEvent) {
               onToolEvent({
                 type: 'tool_result',
                 toolCallId: block.tool_use_id,
-                result: block.content,
+                result: block.content?.[0]?.text,
               });
             }
           }
@@ -285,7 +273,12 @@ async function runAgentWithSDK(
     }
   }
 
-  return { content: finalContent, toolCalls, sdkSessionId, sdkResumeAt };
+  return {
+    content: finalContent,
+    toolCalls,
+    sdkSessionId,
+    sdkResumeAt,
+  };
 }
 
 async function main(): Promise<void> {

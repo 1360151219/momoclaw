@@ -19,6 +19,12 @@ import {
   addMessage,
   getSessionMessages,
   clearSessionMessages,
+  createScheduledTask,
+  getScheduledTask,
+  listScheduledTasks,
+  deleteScheduledTask,
+  updateTaskStatus,
+  getTaskRunLogs,
 } from './db.js';
 import {
   runContainerAgent,
@@ -27,6 +33,8 @@ import {
 } from './container.js';
 import { PromptPayload, ToolEvent } from './types.js';
 import { MemoryStore } from './memory.js';
+import { CronService, cronService as defaultCronService } from './cron.js';
+import { OutboxWorker } from './outbox.js';
 import { basename, dirname } from 'path';
 import {
   LoadingSpinner,
@@ -45,6 +53,12 @@ const program = new Command();
 
 // Memory store instance (initialized in initialize())
 let memoryStore: MemoryStore;
+
+// Cron service instance
+let cronService: CronService;
+
+// Outbox worker instance
+let outboxWorker: OutboxWorker;
 
 program
   .name('miniclaw')
@@ -68,6 +82,95 @@ async function initialize(): Promise<void> {
 
   // Initialize memory store
   memoryStore = new MemoryStore(config.workspaceDir);
+
+  // Initialize and start outbox worker
+  outboxWorker = new OutboxWorker(config.workspaceDir, 10000); // 10秒轮询一次
+
+  // 注册 cron 消息处理器 - 终端输出
+  outboxWorker.registerHandler({
+    type: 'cron',
+    handle: async (payload: unknown) => {
+      const cronPayload = payload as {
+        taskId: string;
+        sessionId: string;
+        prompt: string;
+        executedAt: number;
+        success: boolean;
+        output: string;
+        error?: string;
+        toolCalls?: { name: string; arguments: Record<string, unknown>; result?: string }[];
+      };
+
+      const { taskId, sessionId, prompt, executedAt, success, output, error, toolCalls } = cronPayload;
+      const timestamp = new Date(executedAt).toLocaleString();
+
+      // 打印美观的分隔线和标题
+      const line = '═'.repeat(60);
+      console.log(kleur.gray(line));
+      console.log(kleur.cyan(' 📋 Cron Task Result'));
+      console.log(kleur.gray(line));
+
+      // 任务基本信息
+      console.log(`  ${kleur.gray('Task ID:')}    ${kleur.cyan(taskId)}`);
+      console.log(`  ${kleur.gray('Session:')}    ${kleur.cyan(sessionId)}`);
+      console.log(`  ${kleur.gray('Time:')}       ${kleur.gray(timestamp)}`);
+      console.log(`  ${kleur.gray('Status:')}     ${success ? kleur.green().bold(' ✓ SUCCESS ') : kleur.red().bold(' ✗ FAILED ')}`);
+      console.log();
+
+      // 执行的 Prompt
+      console.log(kleur.gray('  Prompt:'));
+      const truncatedPrompt = prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt;
+      console.log(`  ${kleur.white(truncatedPrompt)}`);
+      console.log();
+
+      // 输出内容
+      if (output) {
+        console.log(kleur.gray('  Output:'));
+        const formattedOutput = output
+          .split('\n')
+          .map((line) => `  ${kleur.white(line)}`)
+          .join('\n');
+        console.log(formattedOutput);
+        console.log();
+      }
+
+      // 工具调用信息
+      if (toolCalls && toolCalls.length > 0) {
+        console.log(kleur.gray('  Tool Calls:'));
+        for (const tool of toolCalls) {
+          console.log(`    ${kleur.yellow('→')} ${kleur.cyan(tool.name)}`);
+          const args = JSON.stringify(tool.arguments);
+          const truncatedArgs = args.length > 50 ? args.slice(0, 50) + '...' : args;
+          console.log(`      ${kleur.gray('args:')} ${kleur.gray(truncatedArgs)}`);
+          if (tool.result) {
+            const result = tool.result.length > 50 ? tool.result.slice(0, 50) + '...' : tool.result;
+            console.log(`      ${kleur.gray('result:')} ${kleur.gray(result)}`);
+          }
+        }
+        console.log();
+      }
+
+      // 错误信息
+      if (error) {
+        console.log(kleur.red('  Error:'));
+        console.log(`  ${kleur.red(error)}`);
+        console.log();
+      }
+
+      // 底部结束线
+      console.log(kleur.gray(line));
+      console.log();
+
+      return true; // 返回 true 表示处理成功
+    },
+  });
+
+  outboxWorker.start();
+
+  // Initialize and start cron service
+  cronService = defaultCronService;
+  cronService.setOutboxWorker(outboxWorker);
+  cronService.start();
 }
 
 // 格式化会话列表
@@ -446,9 +549,262 @@ program
     }
   });
 
+// ========== Scheduled Task Commands ==========
+
+program
+  .command('task:add <sessionId>')
+  .description('Add a scheduled task')
+  .requiredOption('-p, --prompt <prompt>', 'The prompt to execute')
+  .option('-t, --type <type>', 'Schedule type: cron | interval | once', 'once')
+  .option('-v, --value <value>', 'Schedule value (cron expr, seconds, or ISO timestamp)')
+  .action((sessionId, options) => {
+    const session = getSession(sessionId);
+    if (!session) {
+      console.error(kleur.red(`Session not found: ${sessionId}`));
+      process.exit(1);
+    }
+
+    if (!options.value) {
+      console.error(kleur.red('Schedule value is required (--value)'));
+      process.exit(1);
+    }
+
+    // Validate schedule type
+    const validTypes = ['cron', 'interval', 'once'];
+    if (!validTypes.includes(options.type)) {
+      console.error(kleur.red(`Invalid schedule type: ${options.type}`));
+      process.exit(1);
+    }
+
+    // Validate cron expression if type is cron
+    if (options.type === 'cron' && !CronService.validateCronExpression(options.value)) {
+      console.error(kleur.red(`Invalid cron expression: ${options.value}`));
+      console.log(kleur.gray('Format: "minute hour day month weekday"'));
+      console.log(kleur.gray('Example: "0 9 * * 1-5" for weekdays at 9:00'));
+      process.exit(1);
+    }
+
+    // Calculate next run time
+    const nextRun = CronService.calculateInitialNextRun(options.type, options.value);
+
+    const task = createScheduledTask(
+      CronService.generateTaskId(),
+      sessionId,
+      options.prompt,
+      options.type,
+      options.value,
+      nextRun
+    );
+
+    console.log(kleur.green(`Created scheduled task: ${task.id}`));
+    console.log(kleur.gray(`  Session: ${task.sessionId}`));
+    console.log(kleur.gray(`  Type: ${task.scheduleType}`));
+    console.log(kleur.gray(`  Value: ${task.scheduleValue}`));
+    console.log(kleur.gray(`  Next run: ${new Date(task.nextRun).toLocaleString()}`));
+  });
+
+program
+  .command('task:list [sessionId]')
+  .alias('tasks')
+  .description('List scheduled tasks (optionally filter by session)')
+  .action((sessionId) => {
+    const tasks = listScheduledTasks(sessionId);
+
+    if (tasks.length === 0) {
+      console.log(kleur.yellow('\nNo scheduled tasks found.'));
+      console.log(kleur.gray('Use "miniclaw task:add <sessionId> -p <prompt> -t <type> -v <value>" to create one.\n'));
+      return;
+    }
+
+    console.log(kleur.cyan('\nScheduled Tasks:'));
+    console.log(kleur.gray('='.repeat(80)));
+
+    for (const task of tasks) {
+      const statusColor = {
+        active: kleur.green,
+        paused: kleur.yellow,
+        completed: kleur.gray,
+        failed: kleur.red,
+      }[task.status] || kleur.white;
+
+      console.log(`\n${kleur.cyan(task.id)} ${statusColor(`[${task.status}]`)}`);
+      console.log(`  Session: ${task.sessionId}`);
+      console.log(`  Schedule: ${task.scheduleType} = ${task.scheduleValue}`);
+      console.log(`  Next run: ${new Date(task.nextRun).toLocaleString()}`);
+      if (task.lastRun) {
+        console.log(`  Last run: ${new Date(task.lastRun).toLocaleString()}`);
+      }
+      if (task.runCount > 0) {
+        console.log(`  Run count: ${task.runCount}`);
+      }
+      console.log(`  Prompt: ${task.prompt.slice(0, 60)}${task.prompt.length > 60 ? '...' : ''}`);
+    }
+
+    console.log();
+  });
+
+program
+  .command('task:pause <taskId>')
+  .description('Pause a scheduled task')
+  .action((taskId) => {
+    const task = getScheduledTask(taskId);
+    if (!task) {
+      console.error(kleur.red(`Task not found: ${taskId}`));
+      process.exit(1);
+    }
+
+    if (updateTaskStatus(taskId, 'paused')) {
+      console.log(kleur.green(`Task ${taskId} paused`));
+    } else {
+      console.error(kleur.red(`Failed to pause task ${taskId}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('task:resume <taskId>')
+  .description('Resume a paused task')
+  .action((taskId) => {
+    const task = getScheduledTask(taskId);
+    if (!task) {
+      console.error(kleur.red(`Task not found: ${taskId}`));
+      process.exit(1);
+    }
+
+    if (updateTaskStatus(taskId, 'active')) {
+      // Recalculate next run time
+      const nextRun = CronService.calculateInitialNextRun(task.scheduleType, task.scheduleValue);
+      // Update to the new next run
+      // Note: This is a simplification; in production you might want more sophisticated logic
+      console.log(kleur.green(`Task ${taskId} resumed`));
+      console.log(kleur.gray(`Next run: ${new Date(nextRun).toLocaleString()}`));
+    } else {
+      console.error(kleur.red(`Failed to resume task ${taskId}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('task:delete <taskId>')
+  .alias('task:rm')
+  .description('Delete a scheduled task')
+  .action((taskId) => {
+    const task = getScheduledTask(taskId);
+    if (!task) {
+      console.error(kleur.red(`Task not found: ${taskId}`));
+      process.exit(1);
+    }
+
+    if (deleteScheduledTask(taskId)) {
+      console.log(kleur.green(`Task ${taskId} deleted`));
+    } else {
+      console.error(kleur.red(`Failed to delete task ${taskId}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('task:logs <taskId>')
+  .description('Show task execution logs')
+  .option('-n, --limit <number>', 'Number of logs to show', '10')
+  .action((taskId, options) => {
+    const task = getScheduledTask(taskId);
+    if (!task) {
+      console.error(kleur.red(`Task not found: ${taskId}`));
+      process.exit(1);
+    }
+
+    const limit = parseInt(options.limit, 10) || 10;
+    const logs = getTaskRunLogs(taskId, limit);
+
+    if (logs.length === 0) {
+      console.log(kleur.yellow(`\nNo execution logs for task ${taskId}`));
+      return;
+    }
+
+    console.log(kleur.cyan(`\nExecution logs for ${taskId}:`));
+    console.log(kleur.gray('='.repeat(80)));
+
+    for (const log of logs) {
+      const statusColor = log.success ? kleur.green : kleur.red;
+      console.log(`\n${kleur.gray(new Date(log.executedAt).toLocaleString())} ${statusColor(log.success ? '✓' : '✗')}`);
+      if (log.output) {
+        console.log(`  Output: ${log.output.slice(0, 200)}${log.output.length > 200 ? '...' : ''}`);
+      }
+      if (log.error) {
+        console.log(`  ${kleur.red(`Error: ${log.error}`)}`);
+      }
+    }
+
+    console.log();
+  });
+
+// ========== Outbox Commands ==========
+
+program
+  .command('outbox:status')
+  .description('Show outbox message statistics')
+  .action(() => {
+    if (!outboxWorker) {
+      console.error(kleur.red('Outbox worker not initialized'));
+      process.exit(1);
+    }
+
+    const stats = outboxWorker.getStats();
+    console.log(kleur.cyan('\nOutbox Status:'));
+    console.log(kleur.gray('='.repeat(40)));
+    console.log(`  Total:     ${stats.total}`);
+    console.log(`  Pending:   ${kleur.yellow(stats.pending)}`);
+    console.log(`  Processing: ${kleur.blue(stats.processing)}`);
+    console.log(`  Sent:      ${kleur.green(stats.sent)}`);
+    console.log(`  Failed:    ${kleur.red(stats.failed)}`);
+    console.log();
+    console.log(kleur.gray(`Location: ${config.workspaceDir}/cron_outbox.jsonl`));
+    console.log();
+  });
+
+program
+  .command('outbox:cleanup')
+  .description('Clean up sent messages older than 24 hours')
+  .option('-h, --hours <number>', 'Hours to keep', '24')
+  .action((options) => {
+    if (!outboxWorker) {
+      console.error(kleur.red('Outbox worker not initialized'));
+      process.exit(1);
+    }
+
+    const hours = parseInt(options.hours, 10) || 24;
+    const cleaned = outboxWorker.cleanupSentMessages(hours * 60 * 60 * 1000);
+    console.log(kleur.green(`\nCleaned up ${cleaned} sent messages`));
+    console.log(kleur.gray(`(Removed messages older than ${hours} hours)`));
+    console.log();
+  });
+
 // Default action (interactive chat)
 program.action(() => {
   interactiveChat();
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log(kleur.gray('\nShutting down...'));
+  if (cronService) {
+    cronService.stop();
+  }
+  if (outboxWorker) {
+    outboxWorker.stop();
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  if (cronService) {
+    cronService.stop();
+  }
+  if (outboxWorker) {
+    outboxWorker.stop();
+  }
+  process.exit(0);
 });
 
 // Run

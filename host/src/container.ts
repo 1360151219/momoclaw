@@ -9,11 +9,29 @@ import {
   PromptPayload,
   ToolEvent,
   ToolCall,
+  CronAction,
 } from './types.js';
 import { config } from './config.js';
+import {
+  createScheduledTask,
+  listScheduledTasks,
+  updateTaskStatus,
+  deleteScheduledTask,
+  getTaskRunLogs,
+  getScheduledTask,
+  updateTaskNextRun,
+} from './db.js';
+import { CronService } from './cron.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
+const CRON_TOOLS = [
+  'mcp__article-fetcher__schedule_task',
+  'mcp__article-fetcher__list_scheduled_tasks',
+  'mcp__article-fetcher__pause_task',
+  'mcp__article-fetcher__resume_task',
+  'mcp__article-fetcher__delete_task',
+  'mcp__article-fetcher__get_task_logs',
+];
 const CONTAINER_IMAGE = 'miniclaw-agent:latest';
 
 /**
@@ -160,7 +178,7 @@ export async function runContainerAgent(
       reject(new Error(`Container timeout after ${config.containerTimeout}ms`));
     }, config.containerTimeout);
 
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
@@ -192,6 +210,15 @@ export async function runContainerAgent(
         const result: ContainerResult = JSON.parse(
           readFileSync(outputFile, 'utf-8'),
         );
+
+        const cronActions =
+          result.toolCalls?.filter((call) => CRON_TOOLS.includes(call.name)) ||
+          [];
+        // Handle cron actions from container
+        if (cronActions && cronActions.length > 0) {
+          await handleCronActions(cronActions, payload.session.id, onToolEvent);
+        }
+
         resolve(result);
       } catch (err) {
         resolve({
@@ -217,6 +244,169 @@ export async function runContainerAgent(
       reject(err);
     });
   });
+}
+
+/**
+ * Handle cron actions from container
+ */
+async function handleCronActions(
+  actions: ToolCall[],
+  sessionId: string,
+  onToolEvent?: (event: ToolEvent) => void,
+): Promise<void> {
+  for (const action of actions) {
+    const toolCallId = action.id || `cron-${action.name}-${Date.now()}`;
+    try {
+      const { name, result, arguments: args } = action;
+
+      // Parse result from container if provided, otherwise use arguments
+      let actionData: { type?: string; payload?: Record<string, unknown> } = {};
+      if (result) {
+        try {
+          const parsed = JSON.parse(result);
+          actionData = parsed.action || parsed;
+        } catch {
+          // Result is not JSON, treat as plain text
+        }
+      }
+
+      const actionType = actionData.type;
+      const payload = actionData.payload || args || {};
+
+      let response: { success: boolean; data?: unknown; message?: string };
+
+      switch (name) {
+        case 'mcp__article-fetcher__schedule_task': {
+          // Create a new scheduled task
+          const taskSessionId = (payload.sessionId as string) || sessionId;
+          const prompt = payload.prompt as string;
+          const scheduleType = payload.scheduleType as 'cron' | 'interval' | 'once';
+          const scheduleValue = payload.scheduleValue as string;
+
+          if (!prompt || !scheduleType || !scheduleValue) {
+            response = { success: false, message: 'Missing required fields: prompt, scheduleType, scheduleValue' };
+            break;
+          }
+
+          const taskId = CronService.generateTaskId();
+          const nextRun = CronService.calculateInitialNextRun(scheduleType, scheduleValue);
+
+          const task = createScheduledTask(
+            taskId,
+            taskSessionId,
+            prompt,
+            scheduleType,
+            scheduleValue,
+            nextRun
+          );
+
+          response = { success: true, data: task, message: `Task ${taskId} created successfully` };
+          break;
+        }
+
+        case 'mcp__article-fetcher__list_scheduled_tasks': {
+          // List scheduled tasks
+          const targetSessionId = payload.sessionId as string | undefined;
+          const tasks = listScheduledTasks(targetSessionId);
+          response = { success: true, data: tasks, message: `Found ${tasks.length} tasks` };
+          break;
+        }
+
+        case 'mcp__article-fetcher__pause_task': {
+          // Pause a task
+          const taskId = payload.taskId as string;
+          if (!taskId) {
+            response = { success: false, message: 'Missing required field: taskId' };
+            break;
+          }
+
+          const success = updateTaskStatus(taskId, 'paused');
+          response = success
+            ? { success: true, message: `Task ${taskId} paused` }
+            : { success: false, message: `Task ${taskId} not found` };
+          break;
+        }
+
+        case 'mcp__article-fetcher__resume_task': {
+          // Resume a task
+          const taskId = payload.taskId as string;
+          if (!taskId) {
+            response = { success: false, message: 'Missing required field: taskId' };
+            break;
+          }
+
+          const task = getScheduledTask(taskId);
+          if (!task) {
+            response = { success: false, message: `Task ${taskId} not found` };
+            break;
+          }
+
+          // Recalculate next run time if task was completed
+          const nextRun = task.status === 'completed'
+            ? CronService.calculateInitialNextRun(task.scheduleType, task.scheduleValue)
+            : task.nextRun;
+
+          updateTaskNextRun(taskId, nextRun);
+          const success = updateTaskStatus(taskId, 'active');
+
+          response = success
+            ? { success: true, message: `Task ${taskId} resumed`, data: { nextRun } }
+            : { success: false, message: `Failed to resume task ${taskId}` };
+          break;
+        }
+
+        case 'mcp__article-fetcher__delete_task': {
+          // Delete a task
+          const taskId = payload.taskId as string;
+          if (!taskId) {
+            response = { success: false, message: 'Missing required field: taskId' };
+            break;
+          }
+
+          const success = deleteScheduledTask(taskId);
+          response = success
+            ? { success: true, message: `Task ${taskId} deleted` }
+            : { success: false, message: `Task ${taskId} not found` };
+          break;
+        }
+
+        case 'mcp__article-fetcher__get_task_logs': {
+          // Get task execution logs
+          const taskId = payload.taskId as string;
+          const limit = Math.min(Math.max(parseInt(payload.limit as string) || 10, 1), 100);
+
+          if (!taskId) {
+            response = { success: false, message: 'Missing required field: taskId' };
+            break;
+          }
+
+          const logs = getTaskRunLogs(taskId, limit);
+          response = { success: true, data: logs, message: `Found ${logs.length} log entries` };
+          break;
+        }
+
+        default:
+          response = { success: false, message: `Unknown cron action: ${name}` };
+      }
+
+      if (onToolEvent) {
+        onToolEvent({
+          type: 'tool_result',
+          toolCallId,
+          result: JSON.stringify(response),
+        });
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (onToolEvent) {
+        onToolEvent({
+          type: 'tool_result',
+          toolCallId,
+          result: JSON.stringify({ success: false, message: error }),
+        });
+      }
+    }
+  }
 }
 
 export function checkDockerAvailable(): boolean {

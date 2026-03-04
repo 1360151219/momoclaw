@@ -1,6 +1,6 @@
 /**
  * MCP (Model Context Protocol) 服务器模块
- * 提供文章抓取相关的 MCP 工具
+ * 提供文章抓取和定时任务相关的 MCP 工具
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
@@ -38,7 +38,7 @@ export function formatArticle(article: {
  */
 export function createArticleFetcherMcpServer() {
   return createSdkMcpServer({
-    name: 'article-fetcher-mcp',
+    name: 'miniclaw-mcp',
     version: '1.0.0',
     tools: [
       tool(
@@ -105,6 +105,151 @@ export function createArticleFetcherMcpServer() {
           return {
             content: [
               { type: 'text' as const, text: JSON.stringify(article, null, 2) },
+            ],
+          };
+        },
+      ),
+      // 定时任务相关工具
+      tool(
+        'schedule_task',
+        '创建定时任务，支持 cron/interval/once 三种类型',
+        {
+          sessionId: z.string().describe('关联的会话ID'),
+          prompt: z.string().describe('定时执行的提示词'),
+          scheduleType: z
+            .enum(['cron', 'interval', 'once'])
+            .describe('调度类型：cron表达式/间隔秒数/一次性执行'),
+          scheduleValue: z
+            .string()
+            .describe(
+              '根据调度类型不同，支持的参数分别为：cron表达式、间隔秒数、表示执行时机的毫秒级时间戳',
+            ),
+        },
+        async ({ sessionId, prompt, scheduleType, scheduleValue }) => {
+          // 这些工具由 Host 层特殊处理，这里返回占位信息
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: {
+                    type: 'create',
+                    payload: { sessionId, prompt, scheduleType, scheduleValue },
+                  },
+                }),
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'list_scheduled_tasks',
+        '列出指定会话的定时任务',
+        {
+          sessionId: z.string().describe('会话ID'),
+        },
+        async ({ sessionId }) => {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: { type: 'list', payload: { sessionId } },
+                }),
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'pause_task',
+        '暂停定时任务',
+        {
+          taskId: z.string().describe('任务ID'),
+        },
+        async ({ taskId }) => {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: { type: 'pause', payload: { taskId } },
+                }),
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'resume_task',
+        '恢复定时任务',
+        {
+          taskId: z.string().describe('任务ID'),
+        },
+        async ({ taskId }) => {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: { type: 'resume', payload: { taskId } },
+                }),
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'delete_task',
+        '删除定时任务',
+        {
+          taskId: z.string().describe('任务ID'),
+        },
+        async ({ taskId }) => {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: { type: 'delete', payload: { taskId } },
+                }),
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        'get_task_logs',
+        '获取任务执行日志',
+        {
+          taskId: z.string().describe('任务ID'),
+          limit: z
+            .number()
+            .optional()
+            .default(10)
+            .describe('返回的最大日志条数'),
+        },
+        async ({ taskId, limit }) => {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'queued',
+                  type: 'cron_action',
+                  action: { type: 'logs', payload: { taskId, limit } },
+                }),
+              },
             ],
           };
         },

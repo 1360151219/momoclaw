@@ -42,6 +42,19 @@ export interface ApiConfig {
   maxTokens: number;
 }
 
+// Cron action types for Host-Container communication
+export interface CronAction {
+  type: 'create' | 'list' | 'pause' | 'resume' | 'delete' | 'logs';
+  payload: {
+    sessionId: string;
+    prompt?: string;
+    scheduleType?: 'cron' | 'interval' | 'once';
+    scheduleValue?: string;
+    taskId?: string;
+    limit?: number;
+  };
+}
+
 export interface ContainerResult {
   success: boolean;
   content: string;
@@ -49,6 +62,7 @@ export interface ContainerResult {
   error?: string;
   sdkSessionId?: string;
   sdkResumeAt?: string;
+  cronActions?: CronAction[];
 }
 
 export interface Config {
@@ -75,3 +89,59 @@ export type ToolEvent =
   | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string }
   | { type: 'thinking'; content: string };
 
+// Scheduled task types
+export type ScheduleType = 'cron' | 'interval' | 'once';
+
+export type TaskStatus = 'active' | 'paused' | 'completed' | 'failed';
+
+export interface ScheduledTask {
+  id: string;
+  sessionId: string;
+  prompt: string;
+  scheduleType: ScheduleType;
+  scheduleValue: string;  // cron expression, interval seconds, or ISO timestamp
+  status: TaskStatus;
+  nextRun: number;
+  lastRun?: number;
+  lastResult?: string;
+  runCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TaskRunLog {
+  id: number;
+  taskId: string;
+  executedAt: number;
+  success: boolean;
+  output: string;
+  error?: string;
+}
+
+// ========== Outbox Types ==========
+
+export type OutboxMessageType = 'cron' | 'notification' | 'webhook';
+
+export type OutboxMessageStatus = 'pending' | 'processing' | 'sent' | 'failed';
+
+export interface OutboxMessage {
+  id: string;
+  type: OutboxMessageType;
+  status: OutboxMessageStatus;
+  payload: unknown;
+  createdAt: number;
+  retryCount: number;
+  lastError?: string;
+  sentAt?: number;
+}
+
+export interface CronOutboxPayload {
+  taskId: string;
+  sessionId: string;
+  prompt: string;
+  executedAt: number;
+  success: boolean;
+  output: string;
+  error?: string;
+  toolCalls?: ToolCall[];
+}
