@@ -1,4 +1,4 @@
-FROM docker.m.daocloud.io/library/node:20-alpine
+FROM node:20-alpine
 
 # 安装必要的系统工具
 RUN apk update && apk add \

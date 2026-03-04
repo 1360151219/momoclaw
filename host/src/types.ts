@@ -31,6 +31,7 @@ export interface PromptPayload {
   messages: Message[];
   userInput: string;
   apiConfig: ApiConfig;
+  memory?: MemoryContext;
 }
 
 export interface ApiConfig {
@@ -61,6 +62,11 @@ export interface Config {
   containerTimeout: number;
   dbPath: string;
   defaultSystemPrompt: string;
+}
+
+export interface MemoryContext {
+  todayPath: string;
+  recentContent: string;
 }
 
 // Stream event types for real-time tool call display

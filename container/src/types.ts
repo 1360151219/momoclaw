@@ -31,6 +31,12 @@ export interface PromptPayload {
   messages: Message[];
   userInput: string;
   apiConfig: ApiConfig;
+  memory?: MemoryContext;
+}
+
+export interface MemoryContext {
+  todayPath: string;
+  recentContent: string;
 }
 
 export interface ApiConfig {
@@ -65,4 +71,3 @@ export interface ContainerResult {
 export type ToolEvent =
   | { type: 'tool_use'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string };
-
