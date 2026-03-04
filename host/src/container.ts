@@ -4,12 +4,39 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import { ContainerResult, PromptPayload, ToolEvent, ToolCall } from './types.js';
+import {
+  ContainerResult,
+  PromptPayload,
+  ToolEvent,
+  ToolCall,
+} from './types.js';
 import { config } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const CONTAINER_IMAGE = 'miniclaw-agent:latest';
+
+/**
+ * 查找项目根目录
+ * 从当前目录向上遍历，直到找到包含  .git 的目录
+ */
+function findProjectRoot(startPath: string): string {
+  let currentDir = startPath;
+  while (true) {
+    // 检查特征文件： .git 目录
+    if (existsSync(join(currentDir, '.git'))) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      // 如果到达文件系统根目录仍未找到，回退到默认的相对路径假设，或者抛出错误
+      // 为了安全起见，这里抛出错误，提示用户环境配置可能不正确
+      throw new Error('无法找到项目根目录（未发现 .git）');
+    }
+    currentDir = parentDir;
+  }
+}
 
 export async function runContainerAgent(
   payload: PromptPayload,
@@ -36,6 +63,8 @@ export async function runContainerAgent(
 
   // 构建Docker参数
   const workspacePath = resolve(config.workspaceDir);
+  // 动态查找项目根目录，而不是硬编码 '../..'
+  const projectRootPath = findProjectRoot(__dirname);
   const containerWorkspace = join(tempDir, 'workspace');
   mkdirSync(containerWorkspace, { recursive: true });
 
@@ -48,6 +77,8 @@ export async function runContainerAgent(
     `--cpus=2`,
     `-v`,
     `${workspacePath}:/workspace/files:rw`,
+    `-v`,
+    `${projectRootPath}:/workspace/project:rw`, // 挂载项目根目录
     `-v`,
     `${inputDir}:/workspace/input:ro`,
     `-v`,
@@ -199,7 +230,10 @@ export function checkDockerAvailable(): boolean {
 
 export async function buildContainerImage(): Promise<boolean> {
   return new Promise((res, rej) => {
-    const containerDir = resolve(__dirname, '../../container');
+    // 使用统一的 findProjectRoot 查找根目录，然后拼接 container 路径
+    const rootDir = findProjectRoot(__dirname);
+    const containerDir = join(rootDir, 'container');
+
     const child = spawn('docker', ['build', '-t', CONTAINER_IMAGE, '.'], {
       cwd: containerDir,
       stdio: ['ignore', 'inherit', 'inherit'],

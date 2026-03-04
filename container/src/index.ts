@@ -68,8 +68,13 @@ Save important information like:
 - User preferences or requirements
 - Key decisions made during the conversation
 - Project progress or milestones
-- Action items or follow-ups for tomorrow
+- Action items or follow-ups for tomorrow (use task list format)
 - Important facts about the user's work
+
+### Task List Format
+For action items or things to remember to do, use the Markdown task list format:
+- [ ] Todo item (pending)
+- [x] Completed item (done)
 
 ### How to Save Memory
 1. Read the current day's MEMORY.md

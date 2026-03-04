@@ -2,7 +2,7 @@
 
 ## Important Facts
 
-(Key information learned today)
+- [ ]  下午要去看电影 🎬
 
 ## Decisions Made
 

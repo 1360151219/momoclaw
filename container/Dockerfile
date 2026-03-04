@@ -3,7 +3,11 @@ FROM node:20-alpine
 # 安装必要的系统工具
 RUN apk update && apk add \
     git \
-    curl
+    curl \
+    bash
+
+# 设置 SHELL 环境变量
+ENV SHELL=/bin/bash
 
 # 设置工作目录
 WORKDIR /app
