@@ -47,6 +47,40 @@ function writeOutput(output: ContainerResult): void {
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2));
 }
 
+// Memory system instructions for the agent
+const MEMORY_INSTRUCTIONS = `
+
+## Daily Memory System
+
+You have access to a daily memory system to remember important information. Each day has its own memory file.
+
+### Memory Structure
+Memory files are organized by date: /workspace/files/memory/YYYY-MM-DD/MEMORY.md
+
+### Today's Memory File
+Today's memory file path is provided in your context. You can:
+- Read it to see what was learned today
+- Append new information using the Write tool (read first, then write with original content + additions)
+- Search past memory using Grep on /workspace/files/memory/*/MEMORY.md
+
+### What to Save
+Save important information like:
+- User preferences or requirements
+- Key decisions made during the conversation
+- Project progress or milestones
+- Action items or follow-ups for tomorrow
+- Important facts about the user's work
+
+### How to Save Memory
+1. Read the current day's MEMORY.md
+2. Append new information at the end or under appropriate sections
+3. Use Write to save the updated content
+
+### Search Past Memory
+Use Grep to search across all memory files:
+- Pattern: grep -r "keyword" /workspace/files/memory/
+`;
+
 async function runAgentWithSDK(
   payload: PromptPayload,
   onStream?: (text: string) => void,
@@ -57,7 +91,7 @@ async function runAgentWithSDK(
   sdkSessionId?: string;
   sdkResumeAt?: string;
 }> {
-  const { session, messages, userInput, apiConfig } = payload;
+  const { session, messages, userInput, apiConfig, memory } = payload;
 
   // 如果有 sdkSessionId，直接使用当前用户输入（SDK会管理历史）
   // 如果没有 sdkSessionId，需要构建完整的 prompt 包含历史
@@ -76,6 +110,17 @@ async function runAgentWithSDK(
     }
     fullPrompt += `User: ${userInput}`;
   }
+
+  // 构建增强的系统提示词（包含记忆内容）
+  let enhancedSystemPrompt = session.systemPrompt || '';
+
+  // Add memory context if available
+  if (memory?.recentContent) {
+    enhancedSystemPrompt += `\n\n## Memory Context\n\n${memory.recentContent}\n`;
+  }
+
+  // Add memory instructions
+  enhancedSystemPrompt += MEMORY_INSTRUCTIONS;
 
   // 设置环境变量供 SDK 使用
   const sdkEnv: Record<string, string | undefined> = {
@@ -105,11 +150,11 @@ async function runAgentWithSDK(
       cwd: WORKSPACE_DIR,
       resume: session.sdkSessionId,
       resumeSessionAt: session.sdkResumeAt,
-      systemPrompt: session.systemPrompt
+      systemPrompt: enhancedSystemPrompt
         ? {
             type: 'preset',
             preset: 'claude_code',
-            append: session.systemPrompt,
+            append: enhancedSystemPrompt,
           }
         : { type: 'preset', preset: 'claude_code' },
       settingSources: ['project', 'user'],

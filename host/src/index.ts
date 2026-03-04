@@ -26,6 +26,8 @@ import {
   buildContainerImage,
 } from './container.js';
 import { PromptPayload, ToolEvent } from './types.js';
+import { MemoryStore } from './memory.js';
+import { basename, dirname } from 'path';
 import {
   LoadingSpinner,
   displayWelcomeBanner,
@@ -40,6 +42,9 @@ import {
 } from './ui.js';
 
 const program = new Command();
+
+// Memory store instance (initialized in initialize())
+let memoryStore: MemoryStore;
 
 program
   .name('miniclaw')
@@ -60,6 +65,9 @@ async function initialize(): Promise<void> {
   }
 
   initDatabase(config.dbPath);
+
+  // Initialize memory store
+  memoryStore = new MemoryStore(config.workspaceDir);
 }
 
 // 格式化会话列表
@@ -151,6 +159,42 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         return;
       }
 
+      if (trimmed === '/memory') {
+        const today = memoryStore.read();
+        displaySectionHeader("Today's Memory");
+        console.log(today || '(empty)');
+        console.log();
+        displaySectionHeader('Available Dates');
+        const dates = memoryStore.listDates();
+        if (dates.length > 0) {
+          dates.slice(0, 10).forEach(date => {
+            console.log(`  ${kleur.cyan(date)}`);
+          });
+          if (dates.length > 10) {
+            console.log(`  ${kleur.gray(`... and ${dates.length - 10} more`)}`);
+          }
+        } else {
+          console.log('  (no memory files yet)');
+        }
+        console.log();
+        askQuestion();
+        return;
+      }
+
+      if (trimmed.startsWith('/memory ')) {
+        const dateArg = trimmed.slice(8).trim();
+        const content = memoryStore.read(dateArg);
+        if (content) {
+          displaySectionHeader(`Memory: ${dateArg}`);
+          console.log(content);
+        } else {
+          console.log(kleur.yellow(`No memory found for: ${dateArg}`));
+        }
+        console.log();
+        askQuestion();
+        return;
+      }
+
       // 保存用户消息
       addMessage(session!.id, 'user', trimmed);
 
@@ -166,6 +210,7 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         messages: history.slice(0, -1), // 排除刚添加的消息
         userInput: trimmed,
         apiConfig: getApiConfig(config, session!.model || undefined),
+        memory: memoryStore.getMemoryContext(),
       };
 
       // Start loading spinner
@@ -327,6 +372,64 @@ program
   .description('Start interactive chat (optionally specify session ID)')
   .action((sessionId) => {
     interactiveChat(sessionId);
+  });
+
+program
+  .command('memory [date]')
+  .description('View and manage memory files by date (YYYY-MM-DD, default: today)')
+  .option('-l, --list', 'List all available dates')
+  .option('-g, --grep <pattern>', 'Search all memory files with pattern')
+  .action((date, options) => {
+    if (!memoryStore) {
+      console.error(kleur.red('Memory store not initialized'));
+      process.exit(1);
+    }
+
+    if (options.list) {
+      displaySectionHeader('Available Memory Dates');
+      const dates = memoryStore.listDates();
+      if (dates.length > 0) {
+        dates.forEach(d => console.log(`  ${kleur.cyan(d)}`));
+      } else {
+        console.log('  (no memory files yet)');
+      }
+      console.log();
+      return;
+    }
+
+    if (options.grep) {
+      const { execSync } = require('child_process');
+      try {
+        const baseDir = memoryStore.getBaseDir();
+        const result = execSync(
+          `find "${baseDir}" -name "MEMORY.md" -exec grep -l "${options.grep}" {} \\;`,
+          { encoding: 'utf-8', cwd: baseDir }
+        );
+        const files = result.trim().split('\n').filter(Boolean);
+        console.log(kleur.cyan(`\nFiles containing "${options.grep}":\n`));
+        files.forEach((f: string) => {
+          const dirName = basename(dirname(f));
+          console.log(`  ${kleur.cyan(dirName)}/MEMORY.md`);
+        });
+      } catch {
+        console.log(kleur.yellow(`\nNo matches found for "${options.grep}"`));
+      }
+      console.log();
+      return;
+    }
+
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const content = memoryStore.read(targetDate);
+
+    displaySectionHeader(`Memory: ${targetDate}`);
+    if (content && !content.includes('(Key information learned today)')) {
+      console.log(content);
+    } else {
+      console.log('(no memory recorded for this date)');
+    }
+    console.log();
+    console.log(kleur.gray(`Location: ${memoryStore.getBaseDir()}/${targetDate}/MEMORY.md`));
+    console.log();
   });
 
 program

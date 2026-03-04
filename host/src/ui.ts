@@ -157,6 +157,7 @@ export function displayWelcomeBanner(sessionId: string, model: string): void {
   console.log(kleur.gray('Commands:'));
   console.log(`  ${kleur.cyan('/model <name>')}    - Switch model`);
   console.log(`  ${kleur.cyan('/system <prompt>')}  - Update system prompt`);
+  console.log(`  ${kleur.cyan('/memory')}          - View memory and history`);
   console.log(`  ${kleur.cyan('/clear')}           - Clear session history`);
   console.log(`  ${kleur.cyan('/exit')}            - Quit`);
   console.log();
