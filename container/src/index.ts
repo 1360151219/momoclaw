@@ -100,7 +100,7 @@ async function runAgentWithSDK(
 
   // 如果有 sdkSessionId，直接使用当前用户输入（SDK会管理历史）
   // 如果没有 sdkSessionId，需要构建完整的 prompt 包含历史
-  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.sdkSessionId || "DEFAULT"}\n`;
+  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.sdkSessionId || 'DEFAULT'}\n`;
   if (session.sdkSessionId) {
     // 使用 SDK 的 resume 功能，只需要传当前用户输入
     fullPrompt = userInput;
@@ -160,10 +160,10 @@ async function runAgentWithSDK(
       resumeSessionAt: session.sdkResumeAt,
       systemPrompt: enhancedSystemPrompt
         ? {
-          type: 'preset',
-          preset: 'claude_code',
-          append: enhancedSystemPrompt,
-        }
+            type: 'preset',
+            preset: 'claude_code',
+            append: enhancedSystemPrompt,
+          }
         : { type: 'preset', preset: 'claude_code' },
       settingSources: ['project', 'user'],
       allowedTools: [
@@ -184,7 +184,7 @@ async function runAgentWithSDK(
       allowDangerouslySkipPermissions: true,
       model: apiConfig.model,
       mcpServers: {
-        'article-fetcher': articleFetcherMcpServer,
+        momoclaw_mcp: articleFetcherMcpServer,
       },
     },
   })) {

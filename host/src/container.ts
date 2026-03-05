@@ -25,12 +25,12 @@ import { CronService } from './cron.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CRON_TOOLS = [
-  'mcp__article-fetcher__schedule_task',
-  'mcp__article-fetcher__list_scheduled_tasks',
-  'mcp__article-fetcher__pause_task',
-  'mcp__article-fetcher__resume_task',
-  'mcp__article-fetcher__delete_task',
-  'mcp__article-fetcher__get_task_logs',
+  'mcp__momoclaw_mcp__schedule_task',
+  'mcp__momoclaw_mcp__list_scheduled_tasks',
+  'mcp__momoclaw_mcp__pause_task',
+  'mcp__momoclaw_mcp__resume_task',
+  'mcp__momoclaw_mcp__delete_task',
+  'mcp__momoclaw_mcp__get_task_logs',
 ];
 const CONTAINER_IMAGE = 'miniclaw-agent:latest';
 
@@ -276,20 +276,30 @@ async function handleCronActions(
       let response: { success: boolean; data?: unknown; message?: string };
 
       switch (name) {
-        case 'mcp__article-fetcher__schedule_task': {
+        case 'mcp__momoclaw_mcp__schedule_task': {
           // Create a new scheduled task
           const taskSessionId = (payload.sessionId as string) || sessionId;
           const prompt = payload.prompt as string;
-          const scheduleType = payload.scheduleType as 'cron' | 'interval' | 'once';
+          const scheduleType = payload.scheduleType as
+            | 'cron'
+            | 'interval'
+            | 'once';
           const scheduleValue = payload.scheduleValue as string;
 
           if (!prompt || !scheduleType || !scheduleValue) {
-            response = { success: false, message: 'Missing required fields: prompt, scheduleType, scheduleValue' };
+            response = {
+              success: false,
+              message:
+                'Missing required fields: prompt, scheduleType, scheduleValue',
+            };
             break;
           }
 
           const taskId = CronService.generateTaskId();
-          const nextRun = CronService.calculateInitialNextRun(scheduleType, scheduleValue);
+          const nextRun = CronService.calculateInitialNextRun(
+            scheduleType,
+            scheduleValue,
+          );
 
           const task = createScheduledTask(
             taskId,
@@ -297,26 +307,37 @@ async function handleCronActions(
             prompt,
             scheduleType,
             scheduleValue,
-            nextRun
+            nextRun,
           );
 
-          response = { success: true, data: task, message: `Task ${taskId} created successfully` };
+          response = {
+            success: true,
+            data: task,
+            message: `Task ${taskId} created successfully`,
+          };
           break;
         }
 
-        case 'mcp__article-fetcher__list_scheduled_tasks': {
+        case 'mcp__momoclaw_mcp__list_scheduled_tasks': {
           // List scheduled tasks
           const targetSessionId = payload.sessionId as string | undefined;
           const tasks = listScheduledTasks(targetSessionId);
-          response = { success: true, data: tasks, message: `Found ${tasks.length} tasks` };
+          response = {
+            success: true,
+            data: tasks,
+            message: `Found ${tasks.length} tasks`,
+          };
           break;
         }
 
-        case 'mcp__article-fetcher__pause_task': {
+        case 'mcp__momoclaw_mcp__pause_task': {
           // Pause a task
           const taskId = payload.taskId as string;
           if (!taskId) {
-            response = { success: false, message: 'Missing required field: taskId' };
+            response = {
+              success: false,
+              message: 'Missing required field: taskId',
+            };
             break;
           }
 
@@ -327,11 +348,14 @@ async function handleCronActions(
           break;
         }
 
-        case 'mcp__article-fetcher__resume_task': {
+        case 'mcp__momoclaw_mcp__resume_task': {
           // Resume a task
           const taskId = payload.taskId as string;
           if (!taskId) {
-            response = { success: false, message: 'Missing required field: taskId' };
+            response = {
+              success: false,
+              message: 'Missing required field: taskId',
+            };
             break;
           }
 
@@ -342,24 +366,35 @@ async function handleCronActions(
           }
 
           // Recalculate next run time if task was completed
-          const nextRun = task.status === 'completed'
-            ? CronService.calculateInitialNextRun(task.scheduleType, task.scheduleValue)
-            : task.nextRun;
+          const nextRun =
+            task.status === 'completed'
+              ? CronService.calculateInitialNextRun(
+                  task.scheduleType,
+                  task.scheduleValue,
+                )
+              : task.nextRun;
 
           updateTaskNextRun(taskId, nextRun);
           const success = updateTaskStatus(taskId, 'active');
 
           response = success
-            ? { success: true, message: `Task ${taskId} resumed`, data: { nextRun } }
+            ? {
+                success: true,
+                message: `Task ${taskId} resumed`,
+                data: { nextRun },
+              }
             : { success: false, message: `Failed to resume task ${taskId}` };
           break;
         }
 
-        case 'mcp__article-fetcher__delete_task': {
+        case 'mcp__momoclaw_mcp__delete_task': {
           // Delete a task
           const taskId = payload.taskId as string;
           if (!taskId) {
-            response = { success: false, message: 'Missing required field: taskId' };
+            response = {
+              success: false,
+              message: 'Missing required field: taskId',
+            };
             break;
           }
 
@@ -370,23 +405,36 @@ async function handleCronActions(
           break;
         }
 
-        case 'mcp__article-fetcher__get_task_logs': {
+        case 'mcp__momoclaw_mcp__get_task_logs': {
           // Get task execution logs
           const taskId = payload.taskId as string;
-          const limit = Math.min(Math.max(parseInt(payload.limit as string) || 10, 1), 100);
+          const limit = Math.min(
+            Math.max(parseInt(payload.limit as string) || 10, 1),
+            100,
+          );
 
           if (!taskId) {
-            response = { success: false, message: 'Missing required field: taskId' };
+            response = {
+              success: false,
+              message: 'Missing required field: taskId',
+            };
             break;
           }
 
           const logs = getTaskRunLogs(taskId, limit);
-          response = { success: true, data: logs, message: `Found ${logs.length} log entries` };
+          response = {
+            success: true,
+            data: logs,
+            message: `Found ${logs.length} log entries`,
+          };
           break;
         }
 
         default:
-          response = { success: false, message: `Unknown cron action: ${name}` };
+          response = {
+            success: false,
+            message: `Unknown cron action: ${name}`,
+          };
       }
 
       if (onToolEvent) {

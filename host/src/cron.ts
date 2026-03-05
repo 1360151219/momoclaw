@@ -40,7 +40,7 @@ export class CronService {
   private executingTasks = new Set<string>(); // 防止重复执行
   private outboxWorker?: OutboxWorker;
 
-  constructor(pollIntervalMs: number = 30000, outboxWorker?: OutboxWorker) {
+  constructor(pollIntervalMs: number = 10000, outboxWorker?: OutboxWorker) {
     this.pollIntervalMs = pollIntervalMs;
     this.outboxWorker = outboxWorker;
   }
