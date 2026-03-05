@@ -20,7 +20,7 @@ import {
 } from './db.js';
 import { runContainerAgent } from './container.js';
 import { getApiConfig, config } from './config.js';
-import { OutboxWorker, enqueueCronResult } from './outbox.js';
+import { displayToolResultEvent } from './ui.js';
 
 // Cron 表达式解析 (简化版)
 // 格式: "分 时 日 月 周"
@@ -38,18 +38,9 @@ export class CronService {
   private intervalId: NodeJS.Timeout | null = null;
   private readonly pollIntervalMs: number;
   private executingTasks = new Set<string>(); // 防止重复执行
-  private outboxWorker?: OutboxWorker;
 
-  constructor(pollIntervalMs: number = 10000, outboxWorker?: OutboxWorker) {
+  constructor(pollIntervalMs: number = 10000) {
     this.pollIntervalMs = pollIntervalMs;
-    this.outboxWorker = outboxWorker;
-  }
-
-  /**
-   * 设置 OutboxWorker
-   */
-  setOutboxWorker(worker: OutboxWorker): void {
-    this.outboxWorker = worker;
   }
 
   /**
@@ -159,7 +150,6 @@ export class CronService {
       const result = await runContainerAgent(payload, (chunk) => {
         output += chunk;
       });
-
       success = result.success;
 
       if (result.success) {
@@ -187,21 +177,6 @@ export class CronService {
     // 记录执行日志
     addTaskRunLog(task.id, success, output, error);
 
-    // 写入 Outbox（如果配置了 OutboxWorker）
-    if (this.outboxWorker) {
-      enqueueCronResult(this.outboxWorker, {
-        taskId: task.id,
-        sessionId: task.sessionId,
-        prompt: task.prompt,
-        executedAt: Date.now(),
-        success,
-        output,
-        error,
-        toolCalls,
-      });
-      console.log(`[CronService] Task ${task.id} result enqueued to outbox`);
-    }
-
     // 计算下次执行时间
     const nextRun = this.calculateNextRun(task);
 
@@ -213,10 +188,14 @@ export class CronService {
       resultMsg,
       nextRun === null ? 'completed' : undefined,
     );
-
-    console.log(
-      `[CronService] Task ${task.id} completed: ${success ? 'success' : 'failed'}`,
+    displayToolResultEvent(
+      task.id,
+      output || error || '',
+      success ? 'success' : 'failed',
     );
+    // console.log(
+    //   `[CronService] Task ${task.id} completed: ${success ? 'success' : 'failed'}`,
+    // );
   }
 
   /**

@@ -189,7 +189,7 @@ async function runAgentWithSDK(
     },
   })) {
     const msgType = message.type;
-    log(`Received message: type=${msgType}`);
+    log(`Received message: type=${msgType},${JSON.stringify(message)}`);
 
     // if (onStream) {
     //   onStream('=====debug=====' + JSON.stringify(message) + '\n');

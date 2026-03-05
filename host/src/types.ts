@@ -118,30 +118,3 @@ export interface TaskRunLog {
   error?: string;
 }
 
-// ========== Outbox Types ==========
-
-export type OutboxMessageType = 'cron' | 'notification' | 'webhook';
-
-export type OutboxMessageStatus = 'pending' | 'processing' | 'sent' | 'failed';
-
-export interface OutboxMessage {
-  id: string;
-  type: OutboxMessageType;
-  status: OutboxMessageStatus;
-  payload: unknown;
-  createdAt: number;
-  retryCount: number;
-  lastError?: string;
-  sentAt?: number;
-}
-
-export interface CronOutboxPayload {
-  taskId: string;
-  sessionId: string;
-  prompt: string;
-  executedAt: number;
-  success: boolean;
-  output: string;
-  error?: string;
-  toolCalls?: ToolCall[];
-}

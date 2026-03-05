@@ -99,28 +99,6 @@ export class LoadingSpinner {
 }
 
 /**
- * Tool call visualization
- */
-export function displayToolCall(toolCall: ToolCall, index: number = 0): void {
-  const icon = '⚙️';
-  const toolName = kleur.magenta(toolCall.name);
-  const args = JSON.stringify(toolCall.arguments, null, 2);
-
-  console.log();
-  console.log(`${kleur.gray('─'.repeat(50))}`);
-  console.log(`${icon} ${kleur.bold('Tool Call')} ${kleur.gray(`#${index + 1}`)}: ${toolName}`);
-  console.log();
-
-  // Display arguments in a readable format
-  const argsLines = args.split('\n');
-  for (const line of argsLines) {
-    console.log(`  ${kleur.gray(line)}`);
-  }
-  console.log(`${kleur.gray('─'.repeat(50))}`);
-  console.log();
-}
-
-/**
  * Display a section header
  */
 export function displaySectionHeader(title: string, icon?: string): void {
@@ -131,28 +109,29 @@ export function displaySectionHeader(title: string, icon?: string): void {
 }
 
 /**
- * Display assistant response with proper formatting
- */
-export function displayAssistantResponse(content: string): void {
-  // Ensure content starts on a new line
-  if (!content.startsWith('\n')) {
-    console.log();
-  }
-  // Content is streamed directly, but we can add post-processing here if needed
-}
-
-/**
  * Display welcome banner
  */
 export function displayWelcomeBanner(sessionId: string, model: string): void {
   const shortModel = model.split('/').pop() || model;
 
   console.log();
-  console.log(kleur.bold().cyan('╭─────────────────────────────────────────────╮'));
-  console.log(kleur.bold().cyan('│') + '           ' + kleur.bold().white('MiniClaw AI Assistant') + '           ' + kleur.bold().cyan('│'));
-  console.log(kleur.bold().cyan('╰─────────────────────────────────────────────╯'));
+  console.log(
+    kleur.bold().cyan('╭─────────────────────────────────────────────╮'),
+  );
+  console.log(
+    kleur.bold().cyan('│') +
+      '           ' +
+      kleur.bold().white('MiniClaw AI Assistant') +
+      '           ' +
+      kleur.bold().cyan('│'),
+  );
+  console.log(
+    kleur.bold().cyan('╰─────────────────────────────────────────────╯'),
+  );
   console.log();
-  console.log(`${kleur.gray('Session:')} ${kleur.cyan(sessionId)}  ${kleur.gray('Model:')} ${kleur.cyan(shortModel)}`);
+  console.log(
+    `${kleur.gray('Session:')} ${kleur.cyan(sessionId)}  ${kleur.gray('Model:')} ${kleur.cyan(shortModel)}`,
+  );
   console.log();
   console.log(kleur.gray('Commands:'));
   console.log(`  ${kleur.cyan('/model <name>')}    - Switch model`);
@@ -193,7 +172,10 @@ export function displaySuccess(message: string): void {
 /**
  * Display a real-time tool use event (as it happens)
  */
-export function displayToolUseEvent(toolCall: ToolCall, hasStartedOutput: boolean): void {
+export function displayToolUseEvent(
+  toolCall: ToolCall,
+  hasStartedOutput: boolean,
+): void {
   const icon = '🔧';
   const toolName = kleur.magenta(toolCall.name);
   const args = JSON.stringify(toolCall.arguments, null, 2);
@@ -216,7 +198,11 @@ export function displayToolUseEvent(toolCall: ToolCall, hasStartedOutput: boolea
 /**
  * Display a real-time tool result event (as it happens)
  */
-export function displayToolResultEvent(toolCallId: string, result: string, subtype?: string): void {
+export function displayToolResultEvent(
+  toolCallId: string,
+  result: string,
+  subtype?: string,
+): void {
   const icon = '✅';
   const status = subtype ? kleur.cyan(subtype) : kleur.cyan('complete');
 
@@ -232,7 +218,8 @@ export function displayToolResultEvent(toolCallId: string, result: string, subty
 
   if (resultPreview) {
     const resultLines = resultPreview.split('\n');
-    for (const line of resultLines.slice(0, 10)) { // Show max 10 lines
+    for (const line of resultLines.slice(0, 10)) {
+      // Show max 10 lines
       console.log(`  ${kleur.gray(line)}`);
     }
     if (resultLines.length > 10) {
@@ -245,7 +232,10 @@ export function displayToolResultEvent(toolCallId: string, result: string, subty
 /**
  * Display a thinking event (AI's internal thinking)
  */
-export function displayThinkingEvent(thinking: string, hasStartedOutput: boolean): void {
+export function displayThinkingEvent(
+  thinking: string,
+  hasStartedOutput: boolean,
+): void {
   const icon = '💭';
 
   if (!hasStartedOutput) {
@@ -263,7 +253,8 @@ export function displayThinkingEvent(thinking: string, hasStartedOutput: boolean
 
   if (thinkingContent) {
     const thinkingLines = thinkingContent.split('\n');
-    for (const line of thinkingLines.slice(0, 20)) { // Show max 20 lines
+    for (const line of thinkingLines.slice(0, 20)) {
+      // Show max 20 lines
       console.log(`  ${kleur.gray(line)}`);
     }
     if (thinkingLines.length > 20) {

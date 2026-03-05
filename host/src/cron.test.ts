@@ -287,19 +287,6 @@ describe('CronService', () => {
     });
   });
 
-  describe('OutboxWorker 集成', () => {
-    it('应该设置 OutboxWorker', () => {
-      const mockWorker = {
-        start: vi.fn(),
-        stop: vi.fn(),
-        enqueue: vi.fn(),
-      } as any;
-
-      service.setOutboxWorker(mockWorker);
-      // 验证设置成功（通过内部状态检查）
-      expect((service as any).outboxWorker).toBe(mockWorker);
-    });
-  });
 });
 
 describe('CronService 集成测试', () => {
