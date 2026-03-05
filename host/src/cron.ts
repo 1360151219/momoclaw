@@ -16,7 +16,6 @@ import {
   getSession,
   addMessage,
   getSessionMessages,
-  updateSessionSdkState,
 } from './db.js';
 import { runContainerAgent } from './container.js';
 import { getApiConfig, config } from './config.js';
@@ -142,8 +141,6 @@ export class CronService {
     let output = '';
     let error: string | undefined;
     let success = false;
-    let sdkSessionId: string | undefined;
-    let sdkResumeAt: string | undefined;
     let toolCalls: import('./types.js').ToolCall[] | undefined;
 
     try {
@@ -154,17 +151,10 @@ export class CronService {
 
       if (result.success) {
         output = output || result.content;
-        sdkSessionId = result.sdkSessionId;
-        sdkResumeAt = result.sdkResumeAt;
         toolCalls = result.toolCalls;
 
         // 保存助手回复
         addMessage(task.sessionId, 'assistant', output, toolCalls);
-
-        // 更新 SDK 会话状态
-        if (sdkSessionId || sdkResumeAt) {
-          updateSessionSdkState(task.sessionId, sdkSessionId, sdkResumeAt);
-        }
       } else {
         error = result.error || 'Unknown error';
         output = result.content;

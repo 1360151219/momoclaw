@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { CronService } from './cron.js';
-import * as db from './db.js';
+import { CronService } from '../cron.js';
+import * as db from '../db.js';
 
 // Mock db 模块
 vi.mock('./db.js', () => ({
@@ -330,12 +330,10 @@ describe('CronService 集成测试', () => {
     vi.mocked(db.getSessionMessages).mockReturnValue([]);
 
     // 模拟 runContainerAgent
-    const { runContainerAgent } = await import('./container.js');
+    const { runContainerAgent } = await import('../container.js');
     vi.mocked(runContainerAgent).mockResolvedValue({
       success: true,
       content: 'Test response',
-      sdkSessionId: 'sdk-session-123',
-      sdkResumeAt: 'resume-token-456',
     });
 
     // 创建 service - 使用很长的轮询间隔，避免多次触发

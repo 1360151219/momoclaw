@@ -148,7 +148,7 @@ Both host and container use:
 
 Sessions are stored in SQLite (`host/data/miniclaw.db`):
 - Each session has independent history and configuration
-- SDK session state (`sdkSessionId`, `sdkResumeAt`) is preserved for resumption
+- Session state is maintained through SQLite message history
 - Only one session is active at a time
 
 ### Container Isolation
