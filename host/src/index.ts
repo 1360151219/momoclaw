@@ -15,7 +15,6 @@ import {
   deleteSession,
   updateSessionPrompt,
   updateSessionModel,
-  updateSessionSdkState,
   addMessage,
   getSessionMessages,
   clearSessionMessages,
@@ -118,7 +117,6 @@ async function interactiveChat(sessionId?: string): Promise<void> {
   displayWelcomeBanner(session.id, model);
 
   const rl = createInterface({ input, output });
-
   let isClosed = false;
 
   rl.on('close', () => {
@@ -148,7 +146,6 @@ async function interactiveChat(sessionId?: string): Promise<void> {
 
       if (trimmed === '/clear') {
         clearSessionMessages(session!.id);
-        updateSessionSdkState(session!.id, undefined, undefined);
         displaySuccess('Session history cleared');
         askQuestion();
         return;
@@ -225,7 +222,6 @@ async function interactiveChat(sessionId?: string): Promise<void> {
         apiConfig: getApiConfig(config, session!.model || undefined),
         memory: memoryStore.getMemoryContext(),
       };
-
       // Start loading spinner
       const spinner = new LoadingSpinner('Thinking');
       spinner.start();
@@ -284,15 +280,6 @@ async function interactiveChat(sessionId?: string): Promise<void> {
           }
 
           addMessage(session!.id, 'assistant', finalContent, result.toolCalls);
-
-          // Update SDK session state
-          if (result.sdkSessionId || result.sdkResumeAt) {
-            updateSessionSdkState(
-              session!.id,
-              result.sdkSessionId,
-              result.sdkResumeAt,
-            );
-          }
         } else {
           displayError(result.error || 'Unknown error');
         }

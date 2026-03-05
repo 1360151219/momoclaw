@@ -3,8 +3,6 @@ export interface Session {
   name: string;
   systemPrompt: string;
   model: string;
-  sdkSessionId?: string;
-  sdkResumeAt?: string;
   createdAt: number;
   updatedAt: number;
   isActive: boolean;
@@ -60,8 +58,6 @@ export interface ContainerResult {
   content: string;
   toolCalls?: ToolCall[];
   error?: string;
-  sdkSessionId?: string;
-  sdkResumeAt?: string;
   cronActions?: CronAction[];
 }
 

@@ -93,28 +93,19 @@ async function runAgentWithSDK(
 ): Promise<{
   content: string;
   toolCalls: ToolCall[];
-  sdkSessionId?: string;
-  sdkResumeAt?: string;
 }> {
   const { session, messages, userInput, apiConfig, memory } = payload;
 
-  // 如果有 sdkSessionId，直接使用当前用户输入（SDK会管理历史）
-  // 如果没有 sdkSessionId，需要构建完整的 prompt 包含历史
-  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.sdkSessionId || 'DEFAULT'}\n`;
-  if (session.sdkSessionId) {
-    // 使用 SDK 的 resume 功能，只需要传当前用户输入
-    fullPrompt = userInput;
-  } else {
-    // 新会话，构建完整 prompt：历史消息 + 当前用户输入
-    for (const msg of messages) {
-      if (msg.role === 'user') {
-        fullPrompt += `User: ${msg.content}\n\n`;
-      } else if (msg.role === 'assistant') {
-        fullPrompt += `Assistant: ${msg.content}\n\n`;
-      }
+  // 构建完整 prompt：历史消息 + 当前用户输入
+  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.id}\n`;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      fullPrompt += `User: ${msg.content}\n\n`;
+    } else if (msg.role === 'assistant') {
+      fullPrompt += `Assistant: ${msg.content}\n\n`;
     }
-    fullPrompt += `User: ${userInput}`;
   }
+  fullPrompt += `User: ${userInput}`;
 
   // 构建增强的系统提示词（包含记忆内容）
   let enhancedSystemPrompt = session.systemPrompt || '';
@@ -140,8 +131,6 @@ async function runAgentWithSDK(
   let finalContent = '';
   const toolCalls: ToolCall[] = [];
   let hasStartedStreaming = false;
-  let sdkSessionId: string | undefined = session.sdkSessionId;
-  let sdkResumeAt: string | undefined;
 
   // Helper function to check if a tool is a cron tool
   const isCronTool = (name: string): boolean => CRON_TOOLS.includes(name);
@@ -156,8 +145,6 @@ async function runAgentWithSDK(
     prompt: fullPrompt,
     options: {
       cwd: WORKSPACE_DIR,
-      resume: session.sdkSessionId,
-      resumeSessionAt: session.sdkResumeAt,
       systemPrompt: enhancedSystemPrompt
         ? {
             type: 'preset',
@@ -195,22 +182,8 @@ async function runAgentWithSDK(
     //   onStream('=====debug=====' + JSON.stringify(message) + '\n');
     // }
 
-    if (
-      message.type === 'system' &&
-      message.subtype === 'init' &&
-      'session_id' in message
-    ) {
-      // 捕获新的 SDK session ID
-      sdkSessionId = (message as { session_id: string }).session_id;
-      log(`Session initialized: ${sdkSessionId}`);
-    }
-
     if (message.type === 'assistant' && 'message' in message) {
       const assistantMsg = message;
-      // 捕获 assistant uuid 用于 resumeSessionAt
-      if (assistantMsg.uuid) {
-        sdkResumeAt = assistantMsg.uuid;
-      }
       // 提取文本内容并流式输出
       if (Array.isArray(assistantMsg.message.content)) {
         for (const block of assistantMsg.message.content) {
@@ -276,8 +249,6 @@ async function runAgentWithSDK(
   return {
     content: finalContent,
     toolCalls,
-    sdkSessionId,
-    sdkResumeAt,
   };
 }
 
@@ -328,8 +299,6 @@ async function main(): Promise<void> {
       success: true,
       content: contentBuffer || result.content,
       toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
-      sdkSessionId: result.sdkSessionId,
-      sdkResumeAt: result.sdkResumeAt,
     };
 
     writeOutput(output);
