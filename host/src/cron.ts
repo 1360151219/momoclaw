@@ -16,7 +16,7 @@ import {
   getSession,
   addMessage,
   getSessionMessages,
-} from './db.js';
+} from './db/index.js';
 import { runContainerAgent } from './container.js';
 import { getApiConfig, config } from './config.js';
 import { displayToolResultEvent } from './ui.js';
@@ -219,7 +219,8 @@ export class CronService {
   }
 
   /**
-   * 计算下次 Cron 执行时间
+   * 计算下次 Cron 执行时间（优化版）
+   * 直接计算下一个匹配时间，避免暴力搜索
    */
   private calculateNextCronRun(
     cronExpr: string,
@@ -229,23 +230,95 @@ export class CronService {
       const fields = this.parseCronExpression(cronExpr);
       const date = new Date(fromTime);
 
-      // 从下一分钟开始查找
+      // 从下一分钟开始
       date.setMinutes(date.getMinutes() + 1);
       date.setSeconds(0);
       date.setMilliseconds(0);
 
-      // 最多查找 366 天
-      for (let i = 0; i < 366 * 24 * 60; i++) {
-        if (this.matchesCron(date, fields)) {
-          return date.getTime();
+      const maxIterations = 366 * 24 * 60; // 最多查找366天
+      let iterations = 0;
+
+      while (iterations < maxIterations) {
+        const currentYear = date.getFullYear();
+        const currentMonth = date.getMonth() + 1;
+        const currentDay = date.getDate();
+        const currentHour = date.getHours();
+        const currentMinute = date.getMinutes();
+
+        // 检查月份
+        if (fields.month.length > 0 && !fields.month.includes(currentMonth)) {
+          // 跳到下个月的第一天
+          date.setDate(1);
+          date.setMonth(date.getMonth() + 1);
+          date.setHours(0);
+          date.setMinutes(0);
+          continue;
         }
-        date.setMinutes(date.getMinutes() + 1);
+
+        // 检查日期和星期
+        const dayOfWeek = date.getDay();
+        const dayOfMonthMatch = fields.dayOfMonth.length === 0 || fields.dayOfMonth.includes(currentDay);
+        const dayOfWeekMatch = fields.dayOfWeek.length === 0 || fields.dayOfWeek.includes(dayOfWeek);
+
+        if (!dayOfMonthMatch && !dayOfWeekMatch) {
+          // 跳到明天
+          date.setDate(date.getDate() + 1);
+          date.setHours(0);
+          date.setMinutes(0);
+          continue;
+        }
+
+        // 检查小时
+        if (fields.hour.length > 0 && !fields.hour.includes(currentHour)) {
+          // 找到下一个匹配的小时
+          const nextHour = this.findNextValue(fields.hour, currentHour);
+          if (nextHour !== null && nextHour > currentHour) {
+            date.setHours(nextHour);
+            date.setMinutes(0);
+            continue;
+          } else {
+            // 跳到明天
+            date.setDate(date.getDate() + 1);
+            date.setHours(fields.hour.length > 0 ? fields.hour[0] : 0);
+            date.setMinutes(0);
+            continue;
+          }
+        }
+
+        // 检查分钟
+        if (fields.minute.length > 0 && !fields.minute.includes(currentMinute)) {
+          const nextMinute = this.findNextValue(fields.minute, currentMinute);
+          if (nextMinute !== null && nextMinute > currentMinute) {
+            date.setMinutes(nextMinute);
+            return date.getTime();
+          } else {
+            // 跳到下一小时
+            date.setHours(date.getHours() + 1);
+            date.setMinutes(fields.minute.length > 0 ? fields.minute[0] : 0);
+            continue;
+          }
+        }
+
+        // 所有字段都匹配
+        return date.getTime();
       }
 
       return null;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 在有序数组中找到大于目标值的下一个值
+   */
+  private findNextValue(sortedArray: number[], target: number): number | null {
+    for (const value of sortedArray) {
+      if (value > target) {
+        return value;
+      }
+    }
+    return null;
   }
 
   /**

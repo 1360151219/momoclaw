@@ -26,11 +26,8 @@ Then read `USER.md` to recall who the user is, his preferences, ongoing context,
 ├── memory/                # Session-loaded context (keep SOUL.md, USER.md under 1000 tokens each)
 │   ├── SOUL.md            # Your identity, principles, capabilities
 │   └── USER.md            # User preferences, context, history
-└── workspace/             # Workspace root. All your work and outputs should be stored here.
-    ├── projects/          # Git repos and code projects'
-    │   └── momoclaw/        # Your project root directory
-    ├── uploads/           # Uploaded files: images, videos, audio, documents, etc.
-    └── outputs/           # Generated outputs: reports, images, videos; organized in sub-folders
+└── projects/             # Git repos and code projects'
+    └── momoclaw/          # Your project root directory
 ```
 > Create if not exists. Create subdirectories as needed.
 

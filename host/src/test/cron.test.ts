@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { CronService } from '../cron.js';
-import * as db from '../db.js';
+import * as db from '../db/index.js';
 
 // Mock db 模块
 vi.mock('./db.js', () => ({

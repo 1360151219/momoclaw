@@ -47,45 +47,6 @@ function writeOutput(output: ContainerResult): void {
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2));
 }
 
-// Memory system instructions for the agent
-const MEMORY_INSTRUCTIONS = `
-
-## Daily Memory System
-
-You have access to a daily memory system to remember important information. Each day has its own memory file.
-
-### Memory Structure
-Memory files are organized by date: /workspace/files/memory/YYYY-MM-DD/MEMORY.md
-
-### Today's Memory File
-Today's memory file path is provided in your context. You can:
-- Read it to see what was learned today
-- Append new information using the Write tool (read first, then write with original content + additions)
-- Search past memory using Grep on /workspace/files/memory/*/MEMORY.md
-
-### What to Save
-Save important information like:
-- User preferences or requirements
-- Key decisions made during the conversation
-- Project progress or milestones
-- Action items or follow-ups for tomorrow (use task list format)
-- Important facts about the user's work
-
-### Task List Format
-For action items or things to remember to do, use the Markdown task list format:
-- [ ] Todo item (pending)
-- [x] Completed item (done)
-
-### How to Save Memory
-1. Read the current day's MEMORY.md
-2. Append new information at the end or under appropriate sections
-3. Use Write to save the updated content
-
-### Search Past Memory
-Use Grep to search across all memory files:
-- Pattern: grep -r "keyword" /workspace/files/memory/
-`;
-
 async function runAgentWithSDK(
   payload: PromptPayload,
   onStream?: (text: string) => void,
@@ -115,13 +76,11 @@ async function runAgentWithSDK(
     enhancedSystemPrompt += `\n\n## Memory Context\n\n${memory.recentContent}\n`;
   }
 
-  // Add memory instructions
-  enhancedSystemPrompt += MEMORY_INSTRUCTIONS;
-
   // 设置环境变量供 SDK 使用
   const sdkEnv: Record<string, string | undefined> = {
     ...process.env,
     ANTHROPIC_API_KEY: apiConfig.apiKey,
+    CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
   };
 
   if (apiConfig.baseUrl) {
@@ -172,6 +131,38 @@ async function runAgentWithSDK(
       model: apiConfig.model,
       mcpServers: {
         momoclaw_mcp: articleFetcherMcpServer,
+        context7: {
+          type: 'http',
+          url: 'https://mcp.context7.com/mcp',
+          headers: {
+            CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
+          },
+        },
+        /**
+         * ## 可用工具
+          | 工具名 | 作用 | 示例 |
+          |--------|------|------|
+          | `get_user_info` | 获取 UP 主信息 | 粉丝数、关注数、投稿数、签名等 |
+          | `get_video_info` | 获取视频详情 | 标题、UP主、播放量、点赞、投币、简介、时长等 |
+          | `search_videos` | 搜索视频 | 按关键词搜索，支持分页 |
+         */
+        bilibili: {
+          command: 'npx',
+          args: ['-y', '@wangshunnn/bilibili-mcp-server'],
+        },
+        /**
+         * ## GitHub MCP Server
+         * 可用工具: search_repositories, get_repository, list_commits, get_file_contents,
+         *          create_or_update_file, create_repository, search_code, list_issues,
+         *          create_issue, add_issue_comment
+         */
+        github: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: {
+            GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
+          },
+        },
       },
     },
   })) {

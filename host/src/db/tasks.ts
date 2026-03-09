@@ -1,0 +1,297 @@
+import { statSync } from 'fs';
+import { ScheduledTask, TaskRunLog, TaskStatus, ScheduleType } from '../types.js';
+import { getDb } from './connection.js';
+
+// ========== Scheduled Task Operations ==========
+
+export function createScheduledTask(
+    id: string,
+    sessionId: string,
+    prompt: string,
+    scheduleType: ScheduleType,
+    scheduleValue: string,
+    nextRun: number
+): ScheduledTask {
+    const db = getDb();
+    const now = Date.now();
+
+    // 确保 session 存在（外键约束要求）
+    const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
+    if (!existingSession) {
+        // 自动创建 session
+        db.prepare(`
+            INSERT INTO sessions (id, name, system_prompt, model, created_at, updated_at, is_active)
+            VALUES (?, ?, ?, NULL, ?, ?, 0)
+        `).run(sessionId, `Session-${sessionId.slice(-8)}`, '', now, now);
+    }
+
+    const stmt = db.prepare(`
+        INSERT INTO scheduled_tasks
+        (id, session_id, prompt, schedule_type, schedule_value, status, next_run, run_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, 0, ?, ?)
+    `);
+
+    stmt.run(id, sessionId, prompt, scheduleType, scheduleValue, nextRun, now, now);
+
+    return {
+        id,
+        sessionId,
+        prompt,
+        scheduleType,
+        scheduleValue,
+        status: 'active',
+        nextRun,
+        runCount: 0,
+        createdAt: now,
+        updatedAt: now,
+    };
+}
+
+export function getScheduledTask(id: string): ScheduledTask | undefined {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as any;
+
+    if (!row) return undefined;
+
+    return {
+        id: row.id,
+        sessionId: row.session_id,
+        prompt: row.prompt,
+        scheduleType: row.schedule_type,
+        scheduleValue: row.schedule_value,
+        status: row.status,
+        nextRun: row.next_run,
+        lastRun: row.last_run,
+        lastResult: row.last_result,
+        runCount: row.run_count,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    };
+}
+
+export function listScheduledTasks(sessionId?: string): ScheduledTask[] {
+    const db = getDb();
+
+    let rows: any[];
+    if (sessionId) {
+        rows = db.prepare('SELECT * FROM scheduled_tasks WHERE session_id = ? ORDER BY created_at DESC').all(sessionId) as any[];
+    } else {
+        rows = db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC').all() as any[];
+    }
+
+    return rows.map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        prompt: row.prompt,
+        scheduleType: row.schedule_type,
+        scheduleValue: row.schedule_value,
+        status: row.status,
+        nextRun: row.next_run,
+        lastRun: row.last_run,
+        lastResult: row.last_result,
+        runCount: row.run_count,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }));
+}
+
+export function getDueTasks(now: number = Date.now()): ScheduledTask[] {
+    const db = getDb();
+    const rows = db.prepare(
+        'SELECT * FROM scheduled_tasks WHERE next_run <= ? AND status = ? ORDER BY next_run ASC'
+    ).all(now, 'active') as any[];
+
+    return rows.map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        prompt: row.prompt,
+        scheduleType: row.schedule_type,
+        scheduleValue: row.schedule_value,
+        status: row.status,
+        nextRun: row.next_run,
+        lastRun: row.last_run,
+        lastResult: row.last_result,
+        runCount: row.run_count,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }));
+}
+
+export function updateTaskAfterRun(
+    taskId: string,
+    nextRun: number | null,
+    lastResult: string,
+    status?: TaskStatus
+): void {
+    const db = getDb();
+    const now = Date.now();
+
+    const finalStatus = status || (nextRun === null ? 'completed' : 'active');
+
+    db.prepare(`
+        UPDATE scheduled_tasks
+        SET next_run = ?,
+            last_run = ?,
+            last_result = ?,
+            run_count = run_count + 1,
+            status = ?,
+            updated_at = ?
+        WHERE id = ?
+    `).run(
+        nextRun,
+        now,
+        lastResult,
+        finalStatus,
+        now,
+        taskId
+    );
+}
+
+export function updateTaskStatus(taskId: string, status: TaskStatus): boolean {
+    const db = getDb();
+    const result = db.prepare(
+        'UPDATE scheduled_tasks SET status = ?, updated_at = ? WHERE id = ?'
+    ).run(status, Date.now(), taskId);
+    return result.changes > 0;
+}
+
+export function updateTaskNextRun(taskId: string, nextRun: number): boolean {
+    const db = getDb();
+    const result = db.prepare(
+        'UPDATE scheduled_tasks SET next_run = ?, updated_at = ? WHERE id = ?'
+    ).run(nextRun, Date.now(), taskId);
+    return result.changes > 0;
+}
+
+export function deleteScheduledTask(taskId: string): boolean {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(taskId);
+    return result.changes > 0;
+}
+
+// ========== Task Run Log Operations ==========
+
+export function addTaskRunLog(
+    taskId: string,
+    success: boolean,
+    output: string,
+    error?: string
+): TaskRunLog {
+    const db = getDb();
+    const now = Date.now();
+
+    const stmt = db.prepare(`
+        INSERT INTO task_run_logs (task_id, executed_at, success, output, error)
+        VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(taskId, now, success ? 1 : 0, output, error || null);
+
+    return {
+        id: result.lastInsertRowid as number,
+        taskId,
+        executedAt: now,
+        success,
+        output,
+        error,
+    };
+}
+
+export function getTaskRunLogs(taskId: string, limit: number = 10): TaskRunLog[] {
+    const db = getDb();
+    const rows = db.prepare(`
+        SELECT * FROM task_run_logs
+        WHERE task_id = ?
+        ORDER BY executed_at DESC
+        LIMIT ?
+    `).all(taskId, limit) as any[];
+
+    return rows.map(row => ({
+        id: row.id,
+        taskId: row.task_id,
+        executedAt: row.executed_at,
+        success: row.success === 1,
+        output: row.output,
+        error: row.error,
+    }));
+}
+
+// ========== Cleanup Operations ==========
+
+/**
+ * 清理旧消息数据（会话过期清理）
+ * @param maxAgeDays 消息保留的最大天数（默认30天）
+ * @param keepLastN 每个会话至少保留的消息数量（默认10条）
+ */
+export function cleanupOldMessages(maxAgeDays: number = 30, keepLastN: number = 10): number {
+    const db = getDb();
+    const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+
+    // 获取所有会话ID
+    const sessions = db.prepare('SELECT id FROM sessions').all() as { id: string }[];
+    let deletedCount = 0;
+
+    for (const session of sessions) {
+        // 删除旧消息，但保留每个会话至少 keepLastN 条最新消息
+        const result = db.prepare(`
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND timestamp < ?
+              AND id NOT IN (
+                  SELECT id FROM messages
+                  WHERE session_id = ?
+                  ORDER BY timestamp DESC
+                  LIMIT ?
+              )
+        `).run(session.id, cutoffTime, session.id, keepLastN);
+
+        deletedCount += result.changes;
+    }
+
+    // 清理孤立的任务运行日志（关联任务已不存在）
+    db.prepare(`
+        DELETE FROM task_run_logs
+        WHERE task_id NOT IN (SELECT id FROM scheduled_tasks)
+    `).run();
+
+    // 清理已完成且执行时间超过 maxAgeDays 的一次性任务
+    db.prepare(`
+        DELETE FROM scheduled_tasks
+        WHERE schedule_type = 'once'
+          AND status = 'completed'
+          AND last_run < ?
+    `).run(cutoffTime);
+
+    return deletedCount;
+}
+
+/**
+ * 获取数据库统计信息
+ */
+export function getDatabaseStats(): {
+    sessions: number;
+    messages: number;
+    scheduledTasks: number;
+    taskRunLogs: number;
+    dbSizeBytes: number;
+} {
+    const db = getDb();
+
+    const sessions = (db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number }).count;
+    const messages = (db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number }).count;
+    const scheduledTasks = (db.prepare('SELECT COUNT(*) as count FROM scheduled_tasks').get() as { count: number }).count;
+    const taskRunLogs = (db.prepare('SELECT COUNT(*) as count FROM task_run_logs').get() as { count: number }).count;
+
+    // 获取数据库文件大小
+    const dbPath = (db as any).name || '';
+    let dbSizeBytes = 0;
+    try {
+        if (dbPath) {
+            dbSizeBytes = statSync(dbPath).size;
+        }
+    } catch {
+        // 忽略错误
+    }
+
+    return { sessions, messages, scheduledTasks, taskRunLogs, dbSizeBytes };
+}

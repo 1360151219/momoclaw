@@ -62,6 +62,8 @@ export interface ContainerResult {
 }
 
 export interface Config {
+  githubToken?: string;
+  context7ApiKey?: string;
   anthropicApiKey?: string;
   anthropicBaseUrl?: string;
   openaiApiKey?: string;

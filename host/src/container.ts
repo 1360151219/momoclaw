@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import { writeFileSync, mkdirSync, readFileSync, existsSync, rmSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -20,10 +20,26 @@ import {
   getTaskRunLogs,
   getScheduledTask,
   updateTaskNextRun,
-} from './db.js';
+} from './db/index.js';
 import { CronService } from './cron.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * 安全的 JSON 序列化，处理循环引用
+ */
+function safeStringify(obj: unknown): string {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular Reference]';
+      }
+      seen.add(value);
+    }
+    return value;
+  });
+}
 const CRON_TOOLS = [
   'mcp__momoclaw_mcp__schedule_task',
   'mcp__momoclaw_mcp__list_scheduled_tasks',
@@ -74,7 +90,7 @@ export async function runContainerAgent(
 
   // 写入prompt到输入文件
   const inputFile = join(inputDir, 'payload.json');
-  writeFileSync(inputFile, JSON.stringify(payload, null, 2));
+  writeFileSync(inputFile, safeStringify(payload));
 
   // 准备输出文件路径
   const outputFile = join(outputDir, 'result.json');
@@ -107,6 +123,10 @@ export async function runContainerAgent(
     `INPUT_FILE=/workspace/input/payload.json`,
     '-e',
     `OUTPUT_FILE=/workspace/output/result.json`,
+    '-e',
+    `CONTEXT7_API_KEY=${config.context7ApiKey}`,
+    '-e',
+    `GITHUB_TOKEN=${config.githubToken}`,
     '-e',
     `TMP_DIR=/workspace/tmp`,
     CONTAINER_IMAGE,
@@ -441,7 +461,7 @@ async function handleCronActions(
         onToolEvent({
           type: 'tool_result',
           toolCallId,
-          result: JSON.stringify(response),
+          result: safeStringify(response),
         });
       }
     } catch (err) {
@@ -450,7 +470,7 @@ async function handleCronActions(
         onToolEvent({
           type: 'tool_result',
           toolCallId,
-          result: JSON.stringify({ success: false, message: error }),
+          result: safeStringify({ success: false, message: error }),
         });
       }
     }
@@ -477,10 +497,10 @@ export async function buildContainerImage(): Promise<boolean> {
       stdio: ['ignore', 'inherit', 'inherit'],
     });
 
-    (child as any).on('close', (code: number) => {
+    child.on('close', (code: number | null) => {
       res(code === 0);
     });
 
-    (child as any).on('error', rej);
+    child.on('error', rej);
   });
 }

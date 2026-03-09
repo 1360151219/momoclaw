@@ -1,4 +1,4 @@
-# 从 0 到 1：实现你自己的 OpenClaw
+# 从黑盒到宠物：亲手造一只有灵魂的 AI 小龙虾是种什么体验？
 
 ## 一、引言
 
@@ -10,9 +10,9 @@
 
 ---
 
-## 二、OpenClaw 的复刻和解读
+## 二、OpenClaw 功能介绍
 
-### 2.1 OpenClaw 核心功能介绍
+### 2.1 OpenClaw 核心功能
 
 OpenClaw 的核心引擎本质上是一个**消息驱动的 agentic loop 运行时**。这是什么意思呢？简单来说：
 
@@ -87,907 +87,363 @@ Heartbeat 本质上是一个永不停止的事件循环（Event Loop）：
 **一切的一切，能由 AI 自己去做抉择的，不要人工干涉！！！**
 
 1. **文件至上**：OpenClaw 的会话记录、各种 Memory 等均以文件形式存储在本地磁盘。这意味着这是一个**传统 RAG**的系统。所有的文件写入由 Agent 自行决定，所有的检索操作也是由 Agent 通过 Bash Grep 命令来实现的。
-2. **灵活的 Skills 系统**：OpenClaw 的 Skills 系统是其最核心的功能模块。
 
----
----
+这种做法的效果并不比市面上流行的 Rag 做法差（向量数据库）
 
-## 三、核心组件
+2. **灵活的 Skills 系统**：OpenClaw 的 Skills 系统是其最核心的功能模块。SKills 基于文件系统的形式存在，其组织方式就像您为新团队成员创建的入职指南。
 
-OpenClaw 采用经典的分层架构，由三个层次构成：
+这种基于文件系统的架构实现了**渐进式披露**：Agent 会根据需要分阶段加载信息，而不是预先消耗上下文。这也是 OpenClaw 能够自己学习、进化的重要原因：OpenClaw 可以自己探索并安装 Skills 到环境中，而不需要人工干预。
 
-### 3.1 Frontend（表现层）
-
-负责与用户直接交互。主要功能：
-
-- 渲染聊天界面，接收用户输入
-- 展示 AI 回复的流式输出
-- 显示任务执行状态（进度条、日志输出）
-- 提供配置面板（API Key、模型选择、参数调整）
-
-技术实现上，Frontend 是一个独立的 Electron/React 应用，通过 WebSocket 与 Backend 保持长连接，实现实时双向通信。
-
-### 3.2 Backend（业务逻辑层）
-
-系统的核心，处理所有业务逻辑：
-
-- **Agent 编排**：管理 LLM 调用链，决定何时推理、何时调用工具
-- **MCP 客户端**：与外部工具服务器建立连接，执行工具调用
-- **任务调度**：维护任务队列，处理并发和优先级
-- **Docker 管理**：创建、监控、销毁隔离的执行环境
-- **会话状态**：管理对话历史、上下文窗口、持久化存储
-
-Backend 本身又分为两层：HTTP API 层（对外暴露接口）和 Core 层（核心业务逻辑）。
-
-### 3.3 Communication（通信层）
-
-连接 Frontend 和 Backend 的桥梁，同时处理外部通信：
-
-- **内部通信**：Frontend ↔ Backend 的实时消息传递（基于 WebSocket）
-- **MCP 传输**：与外部 MCP 服务器的连接管理（stdio 或 HTTP）
-- **协议适配**：将 AIEOS 格式的消息转换为内部数据结构
-- **流式处理**：支持 SSE（Server-Sent Events）式的增量数据推送
-
-### 3.4 三层交互流程
-
-1. 用户在 Frontend 输入消息
-2. Frontend 通过 WebSocket 发送 AIEOS 格式的请求到 Backend
-3. Backend 解析请求，调用 LLM 进行推理
-4. 如需工具执行，Backend 通过 MCP 调用外部服务器
-5. Backend 将生成内容实时流式推送到 Frontend
-6. Frontend 逐字渲染，展示最终结果
-
-这种分层设计让各层职责清晰：Frontend 专注交互体验，Backend 专注业务逻辑，Communication 专注可靠传输。任何一层都可以独立替换或升级，不影响其他层。
+3. **强大的主动通信机制**：OpenClaw 支持在 24 小时内持续运行，甚至还会主动地给你发消息。这一机制由 Heartbeat 和 Cron 模块驱动，小龙虾会跟你交谈过程中，给自己设置一些任务，待任务完成后会主动通知你，让你感受到小龙虾也是一个活生生的“人”。
 
 ---
 
-## 四、技术实现
+## 三、给自己专属“小龙虾”塑形
 
-这一节是"干中学"的核心。下面这些代码示例不是给你"看看而已"的——它们就是 OpenClaw 的真实实现。当你动手写这些代码时，你会逐行理解每个组件为什么存在、如何工作。
+要实现自己专属的“小龙虾”，我们核心实现以下几个方面：
 
-就像看着 AI 把积木一块块搭起来，你不只是拿到了成品，更理解了建筑结构。遇到不懂的地方？打个断点。想看看数据怎么流动？加一行日志。觉得某个行为不合理？直接改源码。
+1. Agent Loop 的实现
+2. 会话和记忆系统
+3. 定时任务调度
 
-**所有这些代码都在你的本地运行。** 你拥有完全的控制权。没有黑盒，没有"魔法"。每个功能你都可以亲手调试、亲手改。这才是"干中学"的真正含义——不是读文档，而是亲手实现、亲手折腾、亲手搞懂。
+### 3.1. Agent Loop 实现
 
-### 4.1 Docker 容器隔离
+Agent Loop 简单来说，就是一个无限循环，每次循环都会把上下文传给大模型进行处理，如果大模型返回的结果是一次工具调用，则手动调用该工具，并将工具调用的结果返回给大模型。以此往复，直至大模型返回的结果不再是工具调用，或者达到最大循环次数。
 
-#### 为什么需要隔离？
-
-AI Agent 会执行代码、读写文件、调用系统命令。如果让它直接在你的主系统上运行，一个错误的命令可能删掉重要文件，一个恶意指令可能窃取数据。隔离不是可选项，是必选项。
-
-#### 实现方式
-
-OpenClaw 为每个任务创建独立的 Docker 容器：
-
-- 容器镜像基于 Alpine Linux，体积小巧（约 5MB）
-- 每个会话分配一个独立容器，任务结束即销毁
-- 通过 Volume 挂载，只允许访问指定的"工作目录"
-- 网络默认隔离，需要外网访问时才开启有限权限
-
-代码层面，Backend 通过 Dockerode（Node.js 的 Docker SDK）管理容器生命周期：
-
-```typescript
-// 伪代码示例
-const container = await docker.createContainer({
-  Image: 'momoclaw-runtime',
-  Cmd: ['node', 'execute.js'],
-  HostConfig: {
-    Binds: ['/safe/workspace:/workspace:rw'],
-    NetworkMode: 'none', // 默认断网
-  }
-});
+```mermaid
+graph TD
+    Start([开始 Agent Loop]) --> CheckLoop{是否达到最大循环次数?}
+    
+    CheckLoop -- 是 --> End([结束循环/返回错误])
+    CheckLoop -- 否 --> CallLLM[将当前上下文提交给大模型]
+    
+    CallLLM --> CheckResponse{大模型返回结果?}
+    
+    CheckResponse -- 文本回复 --> FinalResult[返回最终回复] --> End
+    
+    CheckResponse -- 工具调用 --> ExecuteTool[执行对应工具]
+    ExecuteTool --> GetResult[获取执行结果]
+    GetResult --> UpdateContext[将结果追加到上下文]
+    UpdateContext --> CheckLoop
 ```
 
-#### 安全优势
-
-- **资源限制**：CPU、内存有上限，防止死循环拖垮系统
-- **文件沙箱**：只能读写挂载的目录，看不到系统其他文件
-- **网络管控**：默认无网络，需要时白名单控制
-- **用完即焚**：容器销毁后不留痕迹，敏感数据不残留
-
-### 4.2 SQLite 持久化存储
-
-#### 为什么选 SQLite？
-
-OpenClaw 需要保存会话历史、任务记录、用户配置。SQLite 是最佳选择：零配置、单文件、足够快、无需独立服务。
-
-#### 数据模型
-
-核心表结构很简单：
-
-```sql
--- 会话表
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  created_at INTEGER,
-  updated_at INTEGER,
-  metadata TEXT -- JSON 格式存储额外信息
-);
-
--- 消息表
-CREATE TABLE messages (
-  id TEXT PRIMARY KEY,
-  session_id TEXT,
-  role TEXT, -- 'user' | 'assistant' | 'system'
-  content TEXT,
-  timestamp INTEGER
-);
-
--- 任务表
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  session_id TEXT,
-  status TEXT, -- 'pending' | 'running' | 'completed' | 'failed'
-  type TEXT,   -- 任务类型标识
-  result TEXT, -- 执行结果（JSON）
-  created_at INTEGER
-);
-```
-
-#### 读写操作
-
-Backend 使用 better-sqlite3 库，采用同步 API（SQLite 是嵌入式数据库，同步调用足够快且代码更简单）：
-
-```typescript
-// 插入消息
-const stmt = db.prepare(
-  'INSERT INTO messages (id, session_id, role, content) VALUES (?, ?, ?, ?)'
-);
-stmt.run(generateId(), sessionId, role, content);
-```
-
-### 4.3 Claude Agent SDK 的使用
-
-#### SDK 集成
-
-OpenClaw 基于 Anthropic 的 Claude Agent SDK（@anthropic-ai/sdk）构建。这个 SDK 提供了与 Claude 模型交互的完整能力。
-
-#### 核心 API 调用
-
-最基础的调用是这样：
-
-```typescript
-import Anthropic from '@anthropic-ai/sdk';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-const response = await anthropic.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
-  max_tokens: 4096,
-  messages: [{ role: 'user', content: '你好' }],
-});
-```
-
-#### 工具调用（Function Calling）
-
-Agent 的核心能力是让 LLM 调用工具。Claude SDK 通过 `tools` 参数实现：
-
-```typescript
-const response = await anthropic.messages.create({
-  model: 'claude-3-5-sonnet-20241022',
-  max_tokens: 4096,
-  messages: conversationHistory,
-  tools: [
-    {
-      name: 'read_file',
-      description: '读取文件内容',
-      input_schema: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '文件路径' }
-        },
-        required: ['path']
-      }
-    }
-  ],
-});
-
-// 如果 Claude 决定调用工具，response.stop_reason 会是 'tool_use'
-if (response.stop_reason === 'tool_use') {
-  const toolCall = response.content.find(c => c.type === 'tool_use');
-  // 执行工具，把结果再传回给 Claude
-}
-```
-
-#### 流式输出
-
-为了让用户实时看到生成内容，使用 `stream` 模式：
-
-```typescript
-const stream = anthropic.messages.create({
-  ...params,
-  stream: true,
-});
-
-for await (const chunk of stream) {
-  if (chunk.type === 'content_block_delta') {
-    // 实时推送到 Frontend
-    websocket.send(chunk.delta.text);
-  }
-}
-```
-
-这就是 OpenClaw 的技术三支柱：**Docker 保安全，SQLite 管数据，Claude SDK 提供智能**。
-
----
-
-## 五、架构设计
-
-### 5.1 核心架构图
-
-先看整体架构：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  Chat UI     │  │  Task Panel  │  │  Config View │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└────────────────────┬────────────────────────────────────────┘
-                     │ WebSocket (AIEOS)
-                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        Backend                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              HTTP API Layer                          │  │
-│  │  (接收 Frontend 请求，返回流式响应)                   │  │
-│  └────────────────────┬─────────────────────────────────┘  │
-│                       ▼                                     │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Core Layer                              │  │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐     │  │
-│  │  │   Agent    │  │   Task     │  │  Session   │     │  │
-│  │  │  Engine    │  │  Scheduler │  │  Manager   │     │  │
-│  │  └────────────┘  └────────────┘  └────────────┘     │  │
-│  └────────────────────┬─────────────────────────────────┘  │
-└───────────────────────┼────────────────────────────────────┘
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│   SQLite     │ │   Docker     │ │  MCP Servers │
-│  (Storage)   │ │ (Execution)  │ │   (Tools)    │
-└──────────────┘ └──────────────┘ └──────────────┘
-```
-
-这个架构的核心思想是**关注点分离**：Frontend 只管展示，Backend 只管逻辑，存储、执行、工具都是可插拔的外部服务。
-
-### 5.2 通信机制（AIEOS 协议详解）
-
-还记得第 2 节提到的 AIEOS 协议吗？现在我们来解剖它。
-
-AIEOS（AI Execution and Orchestration Schema）是 OpenClaw 自定义的通信协议，基于 JSON-RPC 风格设计。它定义了三个核心概念：**任务（Task）**、**消息（Message）**、**事件（Event）**。
-
-#### 任务（Task）
-
-一个 Task 代表一次完整的 AI 交互流程，从用户输入到最终输出。Task 的结构：
-
-```json
-{
-  "id": "task_001",
-  "type": "chat",
-  "status": "running",
-  "session_id": "sess_123",
-  "payload": {
-    "message": "帮我写一个冒泡排序"
-  },
-  "created_at": 1709542800000
-}
-```
-
-#### 消息（Message）
-
-Message 是 Task 内部的通信单元，代表 Agent 与用户的每一次信息交换：
-
-```json
-{
-  "id": "msg_001",
-  "task_id": "task_001",
-  "role": "assistant",
-  "content": "我来帮你写冒泡排序...",
-  "tool_calls": null,
-  "timestamp": 1709542805000
-}
-```
-
-#### 事件（Event）
-
-Event 用于实时推送状态变更，让 Frontend 能够展示进度：
-
-```json
-{
-  "type": "task.progress",
-  "task_id": "task_001",
-  "data": {
-    "step": "generating",
-    "progress": 60
-  },
-  "timestamp": 1709542808000
-}
-```
-
-#### 通信流程示例
-
-**1. Frontend → Backend：创建 Task**
-
-```json
-{
-  "method": "task.create",
-  "params": {
-    "session_id": "sess_123",
-    "message": "帮我写一个冒泡排序"
-  }
-}
-```
-
-**2. Backend → Frontend：流式返回（多个 Event）**
-
-```json
-// Event 1: 开始处理
-{ "type": "task.started", "task_id": "task_001" }
-
-// Event 2: 正在思考
-{ "type": "llm.thinking", "content": "用户想要一个..." }
-
-// Event 3: 调用工具（如果需要）
-{ "type": "tool.called", "tool": "write_file", "args": { "path": "sort.js" } }
-
-// Event 4: 输出内容（流式）
-{ "type": "content.delta", "delta": "function bubbleSort..." }
-
-// Event 5: 完成
-{ "type": "task.completed", "task_id": "task_001" }
-```
-
-#### 与 MCP 的关系
-
-前面说过 MCP 和 AIEOS 都是 JSON-RPC 风格，这里补充它们的联系：
-
-- AIEOS 处理**内部通信**（Frontend ↔ Backend）
-- MCP 处理**外部工具通信**（Backend ↔ Tool Servers）
-- 两者都采用请求-响应模式，可以共享底层的传输层代码
-
-### 5.3 安全策略
-
-OpenClaw 的安全设计遵循"最小权限原则"：
-
-#### 容器隔离
-
-- 每个任务在独立容器中运行
-- 容器无网络访问（除非显式开启）
-- 容器只能访问挂载的工作目录
-
-#### 工具权限控制
-
-- 危险操作（如 `rm -rf /`）需要用户确认
-- 文件访问只能在工作目录内
-- 敏感环境变量不会传入容器
-
-#### API 安全
-
-- API Key 存储在本地，不会上传到任何服务器
-- WebSocket 连接本地-only，不对外暴露
-- 所有外部请求都经过代理，防止信息泄露
-
-#### 审计日志
-
-- 所有执行的操作都记录到 SQLite
-- 可以回溯查看历史任务的具体行为
-- 方便排查问题或发现异常
-
-这套安全机制保证了即使 AI 产生了恶意指令或用户输入了危险命令，损失也能被控制在最小范围。
-
----
-
-## 六、关键实现细节
-
-### 6.1 任务管理
-
-任务管理是 OpenClaw 的核心。一个任务从创建到完成，经历完整的生命周期。
-
-#### 任务状态机
-
-```
-pending → running → [completed | failed]
-            ↓
-        paused (可恢复)
-```
-
-#### 任务队列设计
-
-使用简单的内存队列 + SQLite 持久化：
-
-```typescript
-class TaskManager {
-  private queue: Task[] = [];
-  private running: Map<string, Task> = new Map();
-
-  async enqueue(task: Task): Promise<void> {
-    // 先存数据库，保证不丢失
-    await db.prepare('INSERT INTO tasks (...)').run(...);
-
-    // 加入内存队列
-    this.queue.push(task);
-
-    // 触发调度
-    this.schedule();
-  }
-
-  private async schedule(): Promise<void> {
-    // 控制并发数，默认同时只跑 3 个任务
-    while (this.running.size < 3 && this.queue.length > 0) {
-      const task = this.queue.shift()!;
-      this.running.set(task.id, task);
-      this.execute(task);
-    }
-  }
-
-  private async execute(task: Task): Promise<void> {
-    try {
-      await this.updateStatus(task.id, 'running');
-      // 实际执行逻辑...
-      await this.updateStatus(task.id, 'completed');
-    } catch (error) {
-      await this.updateStatus(task.id, 'failed');
-    } finally {
-      this.running.delete(task.id);
-      this.schedule(); // 触发下一个
-    }
-  }
-}
-```
-
-#### 任务取消
-
-用户可能中途想取消任务。实现方式是保存 AbortController：
-
-```typescript
-private abortControllers: Map<string, AbortController> = new Map();
-
-async cancel(taskId: string): Promise<void> {
-  const controller = this.abortControllers.get(taskId);
-  if (controller) {
-    controller.abort();
-  }
-}
-```
-
-### 6.2 会话状态管理
-
-会话（Session）是一组相关任务的容器，包含对话历史和共享上下文。
-
-#### 上下文窗口管理
-
-Claude 有上下文长度限制（如 200K tokens）。当对话变长时，需要策略性地裁剪：
-
-```typescript
-class SessionManager {
-  async getContext(sessionId: string, maxTokens: number = 100000): Promise<Message[]> {
-    const messages = await this.loadMessages(sessionId);
-
-    // 简单策略：保留系统提示 + 最近 N 条
-    const systemMessage = messages.find(m => m.role === 'system');
-    const recentMessages = messages.slice(-20);
-
-    return systemMessage
-      ? [systemMessage, ...recentMessages]
-      : recentMessages;
-  }
-}
-```
-
-**更聪明的策略（可选实现）：**
-
-- 对早期消息进行摘要，保留关键信息
-- 优先保留用户明确标记为重要的消息
-- 根据 token 数动态调整保留数量
-
-#### 会话持久化
-
-会话数据自动保存到 SQLite，即使程序崩溃也能恢复：
-
-```typescript
-// 自动保存触发点
-- 每条新消息到达时
-- 任务状态变更时
-- 用户手动触发保存时
-```
-
-### 6.3 资源监控
-
-监控 Docker 容器的资源使用，防止某个任务拖垮系统。
-
-#### 容器资源限制
-
-创建容器时设置硬性限制：
-
-```typescript
-const container = await docker.createContainer({
-  HostConfig: {
-    Memory: 512 * 1024 * 1024,  // 512MB 内存限制
-    CpuQuota: 100000,            // 限制 CPU 使用
-  }
-});
-```
-
-#### 实时监控
-
-使用 Docker Stats API 获取容器实时资源使用：
-
-```typescript
-async monitorContainer(containerId: string): Promise<void> {
-  const stats = await docker.getContainer(containerId).stats({ stream: false });
-
-  const memoryUsage = stats.memory_stats.usage;
-  const cpuUsage = this.calculateCPUPercent(stats);
-
-  // 如果超过阈值，发送警告或强制停止
-  if (memoryUsage > MEMORY_THRESHOLD) {
-    await this.handleResourceExhaustion(containerId);
-  }
-}
-```
-
-#### 优雅降级
-
-当资源紧张时，系统可以：
-
-- 暂停新任务的调度
-- 提示用户有长时间运行的任务
-- 自动清理已完成任务的容器
-
-这三个机制（任务管理、会话状态、资源监控）构成了 OpenClaw 的稳定基石。理解它们的实现，你就掌握了 Agent 系统的核心工程实践。
-
----
-
-## 七、实际使用示例
-
-### 7.1 配置文件说明
-
-OpenClaw 使用 YAML 作为配置文件，默认位于 `~/.config/openclaw/config.yaml`。
-
-#### 最小可用配置
-
-```yaml
-# 大模型配置
-llm:
-  provider: anthropic
-  api_key: ${ANTHROPIC_API_KEY}  # 从环境变量读取
-  model: claude-3-5-sonnet-20241022
-  max_tokens: 4096
-
-# 服务器配置
-server:
-  port: 3000
-  host: localhost
-
-# Docker 配置
-docker:
-  enabled: true
-  image: momoclaw-runtime
-  memory_limit: 512m
-  cpu_limit: 1.0
-
-# MCP 工具配置
-mcp:
-  servers:
-    - name: filesystem
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
-    - name: fetch
-      command: uvx
-      args: ["mcp-server-fetch"]
-
-# 日志配置
-logging:
-  level: info
-  file: ~/.config/openclaw/log.txt
-```
-
-#### 配置项说明
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `llm.provider` | 模型提供商 | anthropic |
-| `llm.model` | 模型名称 | claude-3-5-sonnet |
-| `docker.enabled` | 是否启用容器隔离 | true |
-| `docker.memory_limit` | 容器内存限制 | 512m |
-| `mcp.servers` | MCP 工具服务器列表 | [] |
-
-### 7.2 任务调度示例
-
-下面是一个完整的多步骤任务执行示例——让 OpenClaw 帮你创建一个简单的 Web 项目。
-
-**用户输入：**
-
-> "帮我创建一个简单的 TODO 应用，用纯 HTML/JS/CSS，保存在 /workspace/todo 目录"
-
-**OpenClaw 的执行流程：**
-
-**1. 分析意图**
-
-- 识别任务：创建文件、编写代码
-- 确定步骤：创建目录 → 创建 HTML → 创建 CSS → 创建 JS
-
-**2. 创建目录**
-
-```json
-{
-  "type": "tool.called",
-  "tool": "execute_command",
-  "args": { "command": "mkdir -p /workspace/todo" }
-}
-```
-
-**3. 生成代码**
-
-- 调用 Claude 生成 HTML 结构
-- 调用 Claude 生成 CSS 样式
-- 调用 Claude 生成 JS 逻辑
-
-**4. 写入文件**
-
-```json
-{
-  "type": "tool.called",
-  "tool": "write_file",
-  "args": {
-    "path": "/workspace/todo/index.html",
-    "content": "<!DOCTYPE html>..."
-  }
-}
-```
-
-**5. 验证结果**
-
-- 读取生成的文件确认写入成功
-- 向用户展示文件列表和代码预览
-
-**Frontend 实时看到的：**
-
-```
-[系统] 正在分析任务...
-[系统] 正在创建目录...
-[系统] 正在生成代码...
-[Claude] 我来帮你创建 TODO 应用。首先创建项目结构...
-[工具] 执行: mkdir -p /workspace/todo
-[工具] 写入: /workspace/todo/index.html (2.3KB)
-[工具] 写入: /workspace/todo/style.css (1.8KB)
-[工具] 写入: /workspace/todo/app.js (3.1KB)
-[Claude] 已完成！项目结构如下：
-         /workspace/todo/
-         ├── index.html
-         ├── style.css
-         └── app.js
-```
-
-### 7.3 插件系统介绍
-
-OpenClaw 的插件系统基于 MCP 协议，让扩展变得简单。
-
-#### 什么是插件？
-
-插件 = 符合 MCP 协议的工具服务器。它可以是用任何语言编写的独立进程，只要实现了 MCP 标准接口，OpenClaw 就能调用它。
-
-#### 使用现有插件
-
-社区已经有很多现成的 MCP 服务器，可以直接使用：
-
-```yaml
-mcp:
-  servers:
-    # 文件系统访问
-    - name: fs
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
-
-    # SQLite 数据库
-    - name: sqlite
-      command: uvx
-      args: ["mcp-server-sqlite", "/path/to/db.sqlite"]
-
-    # Git 操作
-    - name: git
-      command: uvx
-      args: ["mcp-server-git"]
-
-    # 网页获取
-    - name: fetch
-      command: uvx
-      args: ["mcp-server-fetch"]
-```
-
-#### 插件工作原理
-
-1. OpenClaw 启动时，根据配置启动各个 MCP 服务器进程
-2. 通过 stdio 或 HTTP 与服务器建立连接
-3. 调用 `tools/list` 获取该服务器提供的工具列表
-4. 将这些工具注册到 Agent 的工具箱中
-5. 当 Agent 需要时，通过 `tools/call` 调用具体工具
-
-这种设计让 OpenClaw 的能力可以无限扩展——需要新功能？找个 MCP 服务器，或者自己写一个。
-
----
-
-## 八、扩展指南
-
-### 8.1 开发自己的工具
-
-如果现有的 MCP 服务器不能满足需求，你可以自己写一个。
-
-**最简单的 MCP 服务器（Node.js）：**
-
-```typescript
-// calculator.ts
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-
-const server = new Server({
-  name: 'calculator',
-  version: '1.0.0',
-}, {
-  capabilities: {
-    tools: {}
-  }
-});
-
-// 定义工具
-server.setRequestHandler('tools/list', async () => {
-  return {
-    tools: [{
-      name: 'calculate',
-      description: '执行数学计算',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          expression: {
-            type: 'string',
-            description: '数学表达式，如 "1 + 2 * 3"'
+除此之外，还需要 MCP、Skills、持久化记忆等组件来完善 Agent Loop。
+
+但是这一切都不需要我们来实现～ Claude Code 被誉为最牛叉的 Agent 智能体，我们直接使用其 SDK 进行套壳即可。
+
+```ts
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+for await (const message of query({
+    prompt: fullPrompt,
+    options: {
+      cwd: WORKSPACE_DIR,
+      systemPrompt: enhancedSystemPrompt
+        ? {
+            type: 'preset',
+            preset: 'claude_code',
+            append: enhancedSystemPrompt,
           }
-        },
-        required: ['expression']
-      }
-    }]
-  };
-});
-
-// 处理工具调用
-server.setRequestHandler('tools/call', async (request) => {
-  if (request.params.name === 'calculate') {
-    const { expression } = request.params.arguments;
-    try {
-      // 注意：实际生产环境不要用 eval！这里只是示例
-      const result = eval(expression);
-      return {
-        content: [{ type: 'text', text: String(result) }]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: '计算错误' }]
-      };
-    }
+        : { type: 'preset', preset: 'claude_code' },
+      settingSources: ['project', 'user'],
+      allowedTools: [
+        'Read',
+        'Write',
+        'Edit',
+        'Glob'
+      ],
+      env: sdkEnv,
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      model: apiConfig.model,
+      mcpServers: {
+        my_mcp: myMcpServer,
+      },
+    },
+  })) {
+    //...
   }
-  throw new Error('未知工具');
-});
-
-// 启动服务器
-const transport = new StdioServerTransport();
-await server.connect(transport);
 ```
 
-把这个文件加到配置文件里，OpenClaw 就能调用 `calculate` 工具了。
+### 3.2. 隔离环境
 
-### 8.2 自定义 LLM 配置
+使用 OpenClaw 的用户心底里其实都会有一个忌惮：害怕自己的小龙虾某一天偷偷地拆家了！
 
-OpenClaw 默认使用 Claude，但你可以换成其他模型。
+因此我把每个 Agent 运行时都放在一个隔离的 Docker 容器中。如果是把 Agent 运行时放在 Docker 容器中的话，怎么把参数、变量传进去的？
 
-**使用 OpenAI：**
+我采用的是 IPC 通信方式。把所有想要让 Agent 能够访问到的数据，全部通过 Docker Volume 挂载到容器里，Agent 会自行读取这些数据。
 
-```yaml
-llm:
-  provider: openai
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o
-  base_url: https://api.openai.com/v1  # 可选，用于代理
+示例代码如下：
+
+```ts
+// Host.ts   
+// 外部调用 Agent 函数
+export async function runContainerAgent(
+  payload: PromptPayload,
+): Promise<ContainerResult> {
+  // 创建临时目录用于IPC
+  const tempDir = join(tmpdir(), `miniclaw-${sessionId}-${runId}`);
+  const inputDir = join(tempDir, 'input');
+  const outputDir = join(tempDir, 'output');
+
+  mkdirSync(inputDir, { recursive: true });
+  mkdirSync(outputDir, { recursive: true });
+
+  // 写入prompt到输入文件
+  const inputFile = join(inputDir, 'payload.json');
+  writeFileSync(inputFile, JSON.stringify(payload, null, 2));
+
+  // 准备输出文件路径
+  const outputFile = join(outputDir, 'result.json');
+  // 构建Docker参数
+  const workspacePath = resolve(config.workspaceDir);
+  const projectRootPath = findProjectRoot(__dirname);
+  const containerWorkspace = join(tempDir, 'workspace');
+  mkdirSync(containerWorkspace, { recursive: true });
+
+  const dockerArgs = [
+    'run',
+    '--rm',
+    '-i',
+    '--network=host',
+    `--memory=2g`,
+    `--cpus=2`,
+    `-v`,
+    `${workspacePath}:/workspace/files:rw`,
+    `-v`,
+    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`, // 挂载项目根目录
+    `-v`,
+    `${inputDir}:/workspace/input:ro`,
+    `-v`,
+    `${outputDir}:/workspace/output:rw`,
+    `-v`,
+    `${containerWorkspace}:/workspace/tmp:rw`,
+    '-e',
+    `INPUT_FILE=/workspace/input/payload.json`,
+    '-e',
+    `OUTPUT_FILE=/workspace/output/result.json`,
+    '-e',
+    `TMP_DIR=/workspace/tmp`,
+    CONTAINER_IMAGE,
+    'node',
+    '/app/dist/index.js',
+  ];
+
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    let stdout = '';
+    let stderr = '';
+    let buffer = '';
+    const toolEventMarker = '__TOOL_EVENT__:';
+
+    const child = spawn('docker', dockerArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // 流式输出
+    child.stdout?.on('data', (data: Buffer) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      buffer += chunk;
+
+      // Parse buffer for tool events and text content
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+
+        if (line.startsWith(toolEventMarker)) {
+         // This is tool event
+        } else if (line) {
+          // This is regular text content
+          if (onStream) {
+            onStream(line + '\n');
+          }
+        }
+      }
+
+      // If there's remaining buffer without a newline, send it as text
+      if (buffer && !buffer.includes(toolEventMarker)) {
+        if (onStream) {
+          onStream(buffer);
+        }
+        buffer = '';
+      }
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      // stderr 只记录，不输出给用户，避免干扰正常输出
+      // 调试信息会在出错时一并显示
+    });
+
+    child.on('close', async (code) => {
+      // 清理临时目录
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+        if(code === 0) {
+          resolve({
+            success: true,
+            content: stdout,
+            error: '',
+          });
+          return;
+        }
+      } catch {
+        // 忽略清理错误
+      }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timeoutId);
+      // 清理临时目录
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+      reject(err);
+    });
+  });
+}
 ```
 
-**使用本地模型（Ollama）：**
+### 3.3. 定时任务调度系统
 
-```yaml
-llm:
-  provider: ollama
-  base_url: http://localhost:11434
-  model: llama3.2
+想要你的小龙虾足够聪明活泼，能够主动找你，你就需要一个定时任务调度系统。
+
+实现也比较简单，原理其实就是 Agent 自行解析自然语言，转换为 cron 表达式，通过 MCP/TOOL 的形式自主地把任务持久到 SQLITE 中。
+
+任务调度系统定时去检查数据库，是否有到期的任务。如果有，就会唤醒沉睡的 Agent，加载对应的上下文（Session 和 Memory），并且自行执行任务。
+
+### 3.4. 总结
+
+上述过程忽略了用户交互设计，这部分有需要的同学自行实现即可啦。
+
+经过以上实现，我们就完成了一个基本的小龙虾智能体啦。它可以理解用户的指令，执行任务，并且能够主动与用户互动。
+
+
+## 四、 给你的小龙虾注入灵魂
+
+### 4.1. AIEOS 协议：AI 的通用"灵魂芯片"
+
+如果把 LLM（大模型）比作一个拥有超强智商但没有记忆和性格的"大脑"，那么 **AIEOS 协议**就是给这个大脑植入的**"灵魂芯片"**。
+
+它是开源社区近期兴起的一个开放标准（Portable AI Personas）。简单来说，它的作用就是让你的 AI **有性格、可移植**。
+
+*   **有性格**：它不再是冷冰冰的复读机，而是一个有名字、有价值观、甚至有小脾气的"数字伙伴"。
+*   **可移植**：无论你底层换用 Claude、GPT 还是 DeepSeek，只要加载了这套 AIEOS 配置，它依然是那个熟悉的"小龙虾"，性格和记忆完美保留。
+
+AIEOS 抛弃了以往那种几千字堆在一起、难以维护的 System Prompt，而是采用了**模块化**的设计。它将 AI 的"人设"拆解为一组清晰的 Markdown 文件，就像是给 AI 建立了一份详细的"个人档案"：
+
+![alt text](examples/AIEOS.png)
+
+这一组标准配置文件通常包含：
+
+| 文件名 | 核心作用 | 通俗理解 |
+| :--- | :--- | :--- |
+| **`IDENTITY.md`** | 定义身份 | **简历**：我是谁？叫什么？什么职业？出身背景是什么？ |
+| **`SOUL.md`** | 定义性格 | **MBTI**：我的性格怎样？价值观是什么？说话风格是高冷还是逗比？ |
+| **`USER.md`** | 定义用户 | **雇主档案**：我在为谁服务？我的主人喜欢什么？讨厌什么？ |
+| **`AGENTS.md`** | 定义边界 | **员工手册**：我能做什么？绝对不能做什么？遇到问题怎么处理？ |
+
+通过这种结构化的方式，我们不仅更容易管理 AI 的提示词，还能随时分享自己的"小龙虾"人设给朋友，或者从社区下载别人调教好的有趣灵魂。
+
+同样的，这些文件也都最好不要自己去编写，而是通过你与 AI 在日常对话中，不断调整、完善。
+
+或者参考大神的建议，把你3个月内的支付记录全部导出来，喂给 AI，让 AI 自行分析，然后根据分析结果去编写这些文件。
+
+### 4.2. 多层记忆系统
+
+- 永久记忆和短期记忆
+
+上一节中的 AIEOS 协议，定义了 AI 的"灵魂"，其实这也算是一种永久记忆（可持续迭代，直接注入 System Prompt 中去）。
+
+除此之外，想要你的小龙虾更加的不忘事，你还需要设计一个短期记忆，或者说时间线日志。
+
+这里我设计成了每天一个日志，让我的小龙虾能够自行把每天的重要事项记录下来，并在后续的对话中，根据这些记录，来更好的理解用户的需求。
+
+以下是示例的 Prompt：
+
+```js
+`
+## Daily Memory System
+
+You have access to a daily memory system to remember important information. Each day has its own memory file.
+
+### Memory Structure
+Memory files are organized by date: /workspace/files/memory/YYYY-MM-DD/MEMORY.md
+
+### Today's Memory File
+Today's memory file path is provided in your context. You can:
+- Read it to see what was learned today
+- Append new information using the Write tool (read first, then write with original content + additions)
+- Search past memory using Grep on /workspace/files/memory/*/MEMORY.md
+
+### What to Save
+Save important information like:
+- User preferences or requirements
+- Key decisions made during the conversation
+- Project progress or milestones
+- Action items or follow-ups for tomorrow (use task list format)
+- Important facts about the user's work
+
+### Task List Format
+For action items or things to remember to do, use the Markdown task list format:
+- [ ] Todo item (pending)
+- [x] Completed item (done)
+
+### How to Save Memory
+1. Read the current day's MEMORY.md
+2. Append new information at the end or under appropriate sections
+3. Use Write to save the updated content
+
+### Search Past Memory
+Use Grep to search across all memory files:
+- Pattern: grep -r "keyword" /workspace/files/memory/
+`
 ```
 
-**温度参数调整：**
+### 4.3. 会话记忆 (Session Memory)
 
-```yaml
-llm:
-  temperature: 0.7  # 0-2，越低越确定，越高越创意
-  top_p: 0.9        # 核采样参数
-```
+如果说"AIEOS"是灵魂，"每日日志"是日记本，那么**会话记忆**就是 Agent 的"瞬时工作记忆"。
 
-### 8.3 最佳实践
+它负责记录当前对话窗口内的所有交互细节：你的指令、AI 的回复、工具调用的中间结果等。为了保证对话的连贯性（比如你可以随时问它"我们刚才聊到哪了？"），这些数据需要被完整地保存下来。
 
-经过前面的学习，这里总结一些实用建议：
+在实现上，我采用了轻量级且高效的 **SQLite** 数据库方案。每一次对话交互（Round），无论是用户发起的还是 Agent 主动回复的，都会被序列化并追加到 `messages` 表中。这样不仅保证了数据的持久化，还方便后续进行上下文回溯或历史记录检索。
 
-#### 安全第一
+### 4.4. 自主学习的原理
 
-- 永远开启 Docker 隔离
-- 敏感操作（删除、修改系统文件）加确认提示
-- API Key 存环境变量，不要硬编码
+别人的小龙虾可以自己去学习新的技能，这背后的原理是什么呢？
 
-#### 提示工程
+这依赖着我们上文提到的**多层记忆系统**、**Skills** 以及 **定时任务调度系统**。
 
-- 在配置文件里设置系统提示词，定义 Agent 的行为风格
-- 复杂任务拆解成多个小任务，逐步执行
-- 让 Agent 在执行危险操作前"说出"它要做什么
+- 多层记忆系统：小龙虾在接受到新的知识的时候，会自行判断哪些需要学习（持久化到记忆中）。
+- Skills 系统：小龙虾会自行下载新的 Skills ，保存到本地目录中，等下次对话的时候，Claude Code SDK 会动态读取本地的 Skills，就可以达到"自主学习"的效果啦。
 
-#### 调试技巧
+如果安装了 Anthropics 官方的 [Skill-Creator](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md)，小龙虾甚至还能自己根据上下文，自动创建新的 Skills 呢。
 
-- 开启 debug 日志级别，查看完整通信过程
-- 使用 `task.list` 和 `task.get` API 查看任务状态
-- 在 SQLite 里直接查数据，验证持久化是否正常
-
-#### 性能优化
-
-- 合理设置上下文长度，避免 Token 浪费
-- 对频繁使用的工具设置缓存
-- 长时间运行的任务考虑异步执行 + 回调通知
-
-#### 扩展原则
-
-- 优先找现成的 MCP 服务器，避免重复造轮子
-- 自己写工具时保持单一职责，一个工具只做一件事
-- 工具的描述要清晰，这会影响 LLM 的调用决策
-
-掌握这些，你就从"会用 OpenClaw"进阶到"精通 OpenClaw"了。
+- 定时任务调度系统：有了定时任务调度系统，小龙虾会时不时给自己设置一些任务，也可以达到“自主学习”的目的啦～
 
 ---
 
-## 九、总结
 
-### 9.1 回顾要点
 
-通过这篇文章，我们从零开始解剖了 OpenClaw 的技术架构：
+## 五、总结与展望
 
-1. **理解了核心概念**：OpenClaw 是一个桌面 AI 助手，通过 MCP 接入外部工具，通过 AIEOS 实现内部通信
-2. **掌握了技术栈**：Docker 保安全、SQLite 管数据、Claude SDK 提供智能
-3. **看清了架构设计**：Frontend 负责交互，Backend 处理逻辑，Communication 连接两者
-4. **深入了关键机制**：任务管理、会话状态、资源监控，构成稳定运行的基石
-5. **学会了扩展定制**：开发工具、切换模型、遵循最佳实践
+从一个简单的 `while` 循环，到一个拥有"灵魂"、"记忆"和"自主意识"的数字生命，我们亲手见证了 OpenClaw 的诞生过程。
 
-最重要的是，你理解了**干中学**的真谛——不是读文档，而是亲手实现、亲手调试、亲手掌握。
+通过这篇文章，我们不仅复刻了 OpenClaw 的核心架构：
+- **Agentic Loop**：让 AI 学会思考和行动；
+- **Cron & Heartbeat**：赋予 AI 时间感知和主动性；
+- **AIEOS 协议**：注入了个性化的灵魂；
+- **多层记忆系统**：构建了成长的基石。
 
-### 9.2 未来展望
+更重要的是，我们探索了一种全新的**人机协作模式**。在 OpenClaw 的世界里，AI 不再是一个冷冰冰的问答工具，而是一个生活在你的服务器里、能感知时间流逝、会主动关心你、并且每天都在自我进化的**数字伙伴**。
 
-OpenClaw 还在快速演进中，一些值得期待的方向：
+**"造轮子"的意义，从来不在于轮子本身，而在于造轮子的过程。** 当你看着终端里跳动的日志，看着那个属于你的"小龙虾"第一次主动向你道"早安"，你会发现，所有的代码和调试都是值得的。
 
-- **多 Agent 协作**：多个 Agent 并行工作，处理更复杂的任务
-- **视觉能力**：集成图像理解，实现截图识别、UI 自动化
-- **知识库集成**：连接向量数据库，支持基于私有知识的问答
-- **更丰富的 MCP 生态**：社区贡献的工具会越来越多，开箱即用的能力越来越强
+> 本文的编写以及代码实现，也基本是由小龙虾自己迭代完成的喔～
 
-### 9.3 参与贡献
+![alt text](examples/09e683ec0da1be7e6617a2b06b6a2a8f.png)
 
-OpenClaw 是开源项目，欢迎各种形式的贡献：
-
-- **提交 Issue**：遇到问题或有什么想法，去 GitHub 提 Issue
-- **贡献代码**：修复 Bug、实现新功能、优化性能
-- **分享工具**：把你写的 MCP 服务器分享给社区
-- **完善文档**：帮助改进教程和 API 文档
-- **传播分享**：把这篇文章分享给更多开发者
-
----
-
-## 最后的话
-
-在 AI 辅助编程的时代，"造轮子"不再是贬义词。因为有了 AI，造轮子的成本已经大大降低，而从中获得的理解和掌控感是无价的。
-
-OpenClaw 不是终点，而是一个起点。当你亲手实现并理解了它，你就具备了构建更复杂 AI 系统的能力。接下来，去打造属于你自己的工具吧。
-
-毕竟，**最好的学习方式，就是亲手把它做出来。**
+![alt text](examples/1f2d858c8c165b6222621617ba784790.png)

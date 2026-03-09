@@ -5,22 +5,6 @@ import { existsSync, readFileSync } from 'fs';
 
 dotenv.config();
 
-const FALLBACK_SYSTEM_PROMPT = `You are MomoClaw, a helpful AI assistant running in an isolated Docker container, powered by Claude Agent SDK.
-
-You have access to a full set of developer tools including:
-- File operations: Read, Write, Edit, Glob, Grep
-- Command execution: Bash
-- Web access: WebSearch, WebFetch
-- And more...
-
-Rules:
-1. Workspace is at /workspace/files - all your work should be here
-2. Always use tools to interact with files and the system
-3. Be careful with Bash commands - verify what you're doing
-4. Be concise but thorough in your responses
-
-Enjoy helping the user!`;
-
 function loadMemoryFile(workspaceDir: string, filePath: string): string {
   const fullPath = resolve(workspaceDir, filePath);
   if (existsSync(fullPath)) {
@@ -33,37 +17,11 @@ function loadMemoryFile(workspaceDir: string, filePath: string): string {
   return '';
 }
 
-function loadClaudeMd(workspaceDir: string): string {
-  const claudeMdPath = resolve(workspaceDir, 'CLAUDE.md');
-  if (existsSync(claudeMdPath)) {
-    try {
-      let content = readFileSync(claudeMdPath, 'utf-8');
-
-      // Replace @memory/SOUL.md with actual content
-      content = content.replace(/@memory\/SOUL\.md/g, () => {
-        const soulContent = loadMemoryFile(workspaceDir, 'memory/SOUL.md');
-        return soulContent ? `## SOUL.md\n\n${soulContent}` : '@memory/SOUL.md';
-      });
-
-      // Replace @memory/USER.md with actual content
-      content = content.replace(/@memory\/USER\.md/g, () => {
-        const userContent = loadMemoryFile(workspaceDir, 'memory/USER.md');
-        return userContent ? `## USER.md\n\n${userContent}` : '@memory/USER.md';
-      });
-
-      return content;
-    } catch (err) {
-      console.warn(`Warning: Failed to read ${claudeMdPath}, using fallback system prompt`);
-    }
-  }
-  return FALLBACK_SYSTEM_PROMPT;
-}
-
 export function loadConfig(): Config {
   const workspaceDir = resolve(process.env.WORKSPACE_DIR || './workspace');
-  const defaultSystemPrompt = loadClaudeMd(workspaceDir);
-
   return {
+    githubToken: process.env.GITHUB_TOKEN,
+    context7ApiKey: process.env.CONTEXT7_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL,
     openaiApiKey: process.env.OPENAI_API_KEY,
@@ -73,11 +31,14 @@ export function loadConfig(): Config {
     workspaceDir,
     containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10),
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
-    defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || defaultSystemPrompt,
+    defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
   };
 }
 
-export function getApiConfig(config: Config, modelOverride?: string): ApiConfig {
+export function getApiConfig(
+  config: Config,
+  modelOverride?: string,
+): ApiConfig {
   const modelStr = modelOverride || config.defaultModel;
   const [provider, ...modelParts] = modelStr.split('/');
   const model = modelParts.join('/');
