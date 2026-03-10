@@ -1,0 +1,20 @@
+{
+  "skill_name": "feishu-card-json-builder",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我生成一个飞书卡片，用于展示任务通知。包含任务标题、任务描述、负责人（用人员组件）、截止日期和一个"完成任务"的按钮。",
+      "expected_output": "包含标题、普通文本、人员组件、日期和按钮的完整卡片 JSON"
+    },
+    {
+      "id": 2,
+      "prompt": "创建一个 AI 聊天机器人的飞书卡片，需要支持流式更新效果，显示生成的文本内容，还要有"停止生成"和"重新生成"两个按钮。",
+      "expected_output": "开启 streaming_mode 的卡片 JSON，包含 markdown 组件用于显示流式文本和两个按钮"
+    },
+    {
+      "id": 3,
+      "prompt": "生成一个表单卡片，用于收集用户反馈。包含姓名输入框、问题类型下拉选择（bug/建议/其他）、详细描述的多行输入框和提交按钮。",
+      "expected_output": "使用 form 容器包裹 input、select_static 等交互组件的卡片 JSON"
+    }
+  ]
+}

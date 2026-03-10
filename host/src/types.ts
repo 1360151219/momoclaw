@@ -61,6 +61,15 @@ export interface ContainerResult {
   cronActions?: CronAction[];
 }
 
+export interface FeishuConfig {
+  appId: string;
+  appSecret: string;
+  encryptKey?: string;
+  verificationToken?: string;
+  domain?: 'feishu' | 'lark';
+  autoReplyGroups?: string[];
+}
+
 export interface Config {
   githubToken?: string;
   context7ApiKey?: string;
@@ -74,6 +83,7 @@ export interface Config {
   containerTimeout: number;
   dbPath: string;
   defaultSystemPrompt: string;
+  feishu?: FeishuConfig;
 }
 
 export interface MemoryContext {

@@ -6,6 +6,7 @@ import { checkDockerAvailable, buildContainerImage } from './container.js';
 import { CronService, cronService as defaultCronService } from './cron.js';
 import kleur from 'kleur';
 import { startInteractiveChat } from './chat/index.js';
+import { startFeishuBot } from './chat/feishu.js';
 
 // Global instances
 let cronService: CronService;
@@ -40,15 +41,33 @@ async function buildImage(): Promise<void> {
     }
 }
 
+/**
+ * Start Feishu bot
+ */
+async function startFeishu(): Promise<void> {
+    if (!config.feishu?.appId || !config.feishu?.appSecret) {
+        console.error(kleur.red('Error: Feishu not configured. Set FEISHU_APP_ID and FEISHU_APP_SECRET env vars.'));
+        process.exit(1);
+    }
+
+    console.log(kleur.cyan('Starting Feishu bot...'));
+    await startFeishuBot({ feishuConfig: config.feishu });
+}
+
 // Main entry
 async function main(): Promise<void> {
     await initialize();
 
     const args = process.argv.slice(2);
 
-    // Simple command routing
+    // Command routing
     if (args[0] === 'build') {
         await buildImage();
+        return;
+    }
+
+    if (args[0] === 'feishu') {
+        await startFeishu();
         return;
     }
 

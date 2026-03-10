@@ -19,6 +19,21 @@ function loadMemoryFile(workspaceDir: string, filePath: string): string {
 
 export function loadConfig(): Config {
   const workspaceDir = resolve(process.env.WORKSPACE_DIR || './workspace');
+
+  // Parse Feishu config from env
+  const feishuConfig = process.env.FEISHU_APP_ID
+    ? {
+        appId: process.env.FEISHU_APP_ID,
+        appSecret: process.env.FEISHU_APP_SECRET || '',
+        encryptKey: process.env.FEISHU_ENCRYPT_KEY,
+        verificationToken: process.env.FEISHU_VERIFICATION_TOKEN,
+        domain: (process.env.FEISHU_DOMAIN as 'feishu' | 'lark') || 'feishu',
+        autoReplyGroups: process.env.FEISHU_AUTO_REPLY_GROUPS
+          ? process.env.FEISHU_AUTO_REPLY_GROUPS.split(',').map(s => s.trim())
+          : undefined,
+      }
+    : undefined;
+
   return {
     githubToken: process.env.GITHUB_TOKEN,
     context7ApiKey: process.env.CONTEXT7_API_KEY,
@@ -32,6 +47,7 @@ export function loadConfig(): Config {
     containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10),
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
+    feishu: feishuConfig,
   };
 }
 
