@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(xargs head:*)",
+      "Bash(wc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(node:*)",
+      "WebFetch(domain:mp.weixin.qq.com)"
+    ]
+  }
+}

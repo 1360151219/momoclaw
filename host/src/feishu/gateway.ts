@@ -26,6 +26,10 @@ import {
   clearSessionMessages,
   listSessions,
   deleteSession,
+  getMapping,
+  setMapping,
+  deleteMapping,
+  listMappings,
 } from '../db/index.js';
 import type { Session } from '../types.js';
 
@@ -54,9 +58,26 @@ export class FeishuGateway {
   private botOpenId?: string;
   private isRunning = false;
   private activeReactions = new Map<string, string>();
+  // In-memory cache for chat-to-session mapping (reduces DB queries)
+  private sessionCache = new Map<string, string>();
 
   constructor(private config: FeishuConfig) {
     this.sender = new FeishuSender(config);
+  }
+
+  /**
+   * Warm up session cache from persistent storage on startup
+   */
+  private warmupCache(): void {
+    try {
+      const mappings = listMappings();
+      for (const mapping of mappings) {
+        this.sessionCache.set(mapping.chatId, mapping.sessionId);
+      }
+      log.info(`Cache warmed up with ${mappings.length} session mappings`);
+    } catch (err) {
+      log.warn(`Failed to warm up cache: ${err}`);
+    }
   }
 
   async start(options: GatewayOptions): Promise<void> {
@@ -71,6 +92,9 @@ export class FeishuGateway {
 
     this.isRunning = true;
     log.info('Starting Feishu gateway with official SDK...');
+
+    // Warm up session cache from database
+    this.warmupCache();
 
     // Fetch bot info
     const botInfo = await fetchBotInfo(toCredentials(this.config));
@@ -292,8 +316,7 @@ export class FeishuGateway {
       },
 
       finalize: async (response: FeishuResponse) => {
-        // Final content update
-        mainText = response.text;
+        mainText = response.text || mainText;
 
         const mainSeq = sequence++;
         await enqueueUpdate(() =>
@@ -409,15 +432,24 @@ export class FeishuGateway {
         const chatType = message.chatType === 'p2p' ? 'DM' : 'Group';
         const newSessionId = `feishu_${message.chatId}_${Date.now()}`;
 
-        // Delete old session if exists
-        const oldSessionId = `feishu_${message.chatId}`;
-        deleteSession(oldSessionId);
+        // Delete old session if exists (using cache to find it)
+        const oldSessionId = this.getCachedSessionId(message.chatId);
+        if (oldSessionId) {
+          deleteSession(oldSessionId);
+          log.info(
+            `Deleted old session ${oldSessionId} for chat ${message.chatId}`,
+          );
+        }
 
         // Create new session
         createSession(
           newSessionId,
           `Feishu ${chatType} ${message.chatId.slice(0, 8)}`,
         );
+
+        // Update cache and persistent mapping
+        this.sessionCache.set(message.chatId, newSessionId);
+        setMapping(message.chatId, newSessionId);
 
         return {
           text: `✅ New session created! Session ID: \`${newSessionId}\``,
@@ -445,36 +477,67 @@ export class FeishuGateway {
 
   /**
    * Get or create a session for the Feishu chat
-   * Supports finding the latest session (including timestamped ones from /new command)
+   * Uses in-memory cache first to reduce DB queries
    */
   private getOrCreateSession(message: FeishuMessage): Session {
-    const baseSessionId = `feishu_${message.chatId}`;
+    const chatId = message.chatId;
 
-    // Try to find existing session - first exact match, then look for timestamped ones
-    let session = getSession(baseSessionId);
-
-    if (!session) {
-      // Look for timestamped sessions from /new command
-      const allSessions = listSessions();
-      const chatSessions = allSessions.filter(
-        (s) => s.id.startsWith(`${baseSessionId}_`) || s.id === baseSessionId,
-      );
-
-      if (chatSessions.length > 0) {
-        // Return the most recently updated session for this chat
-        session = chatSessions[0];
+    // 1. Check memory cache first (O(1) lookup)
+    const cachedSessionId = this.sessionCache.get(chatId);
+    if (cachedSessionId) {
+      const session = getSession(cachedSessionId);
+      if (session) {
+        log.debug(`Cache hit for chat ${chatId} -> ${cachedSessionId}`);
+        return session;
       }
+      // Cache stale, remove it and clean up DB mapping
+      this.sessionCache.delete(chatId);
+      deleteMapping(chatId);
+      log.debug(`Cleaned up stale cache and mapping for chat ${chatId}`);
     }
 
-    if (!session) {
-      const chatType = message.chatType === 'p2p' ? 'DM' : 'Group';
-      session = createSession(
-        baseSessionId,
-        `Feishu ${chatType} ${message.chatId.slice(0, 8)}`,
-      );
+    // 2. Check persistent mapping storage
+    const mapping = getMapping(chatId);
+    if (mapping) {
+      const session = getSession(mapping.sessionId);
+      if (session) {
+        // Update cache
+        this.sessionCache.set(chatId, session.id);
+        log.debug(`DB mapping found for chat ${chatId} -> ${session.id}`);
+        return session;
+      }
+      // Mapping stale, clean it up
+      deleteMapping(chatId);
+      log.debug(`Cleaned up stale DB mapping for chat ${chatId}`);
     }
 
+    // 3. Create new session
+    const chatType = message.chatType === 'p2p' ? 'DM' : 'Group';
+    const sessionId = `feishu_${chatId}_${Date.now()}`;
+    const session = createSession(
+      sessionId,
+      `Feishu ${chatType} ${chatId.slice(0, 8)}`,
+    );
+
+    // Update both cache and persistent storage
+    this.sessionCache.set(chatId, sessionId);
+    setMapping(chatId, sessionId);
+
+    log.info(`Created new session ${sessionId} for chat ${chatId}`);
     return session;
+  }
+
+  /**
+   * Get cached session ID for a chat (for /new command to find old session)
+   */
+  private getCachedSessionId(chatId: string): string | undefined {
+    // Try cache first
+    const cached = this.sessionCache.get(chatId);
+    if (cached) return cached;
+
+    // Fallback to DB
+    const mapping = getMapping(chatId);
+    return mapping?.sessionId;
   }
 
   private formatStats(response: FeishuResponse): string | null {

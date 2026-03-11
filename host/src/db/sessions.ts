@@ -1,6 +1,23 @@
 import { Session } from '../types.js';
 import { getDb } from './connection.js';
 
+/**
+ * Initialize the sessions table
+ */
+export function initSessionsTable(db: any): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            system_prompt TEXT NOT NULL DEFAULT '',
+            model TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+}
+
 export function createSession(
     id: string,
     name: string,

@@ -1,6 +1,24 @@
 import { Message } from '../types.js';
 import { getDb } from './connection.js';
 
+/**
+ * Initialize the messages table
+ */
+export function initMessagesTable(db: any): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+            content TEXT NOT NULL,
+            tool_calls TEXT,
+            timestamp INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp)`);
+}
+
 export function addMessage(
     sessionId: string,
     role: 'user' | 'assistant',

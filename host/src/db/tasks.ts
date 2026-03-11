@@ -2,6 +2,50 @@ import { statSync } from 'fs';
 import { ScheduledTask, TaskRunLog, TaskStatus, ScheduleType } from '../types.js';
 import { getDb } from './connection.js';
 
+// ========== Table Initialization ==========
+
+/**
+ * Initialize the scheduled_tasks table
+ */
+export function initTasksTable(db: any): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
+            schedule_value TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed', 'failed')),
+            next_run INTEGER NOT NULL,
+            last_run INTEGER,
+            last_result TEXT,
+            run_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(next_run, status)`);
+}
+
+/**
+ * Initialize the task_run_logs table
+ */
+export function initTaskRunLogsTable(db: any): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS task_run_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            executed_at INTEGER NOT NULL,
+            success INTEGER NOT NULL DEFAULT 0,
+            output TEXT NOT NULL DEFAULT '',
+            error TEXT,
+            FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+        )
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_task_logs ON task_run_logs(task_id, executed_at)`);
+}
+
 // ========== Scheduled Task Operations ==========
 
 export function createScheduledTask(

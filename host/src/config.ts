@@ -29,7 +29,7 @@ export function loadConfig(): Config {
         verificationToken: process.env.FEISHU_VERIFICATION_TOKEN,
         domain: (process.env.FEISHU_DOMAIN as 'feishu' | 'lark') || 'feishu',
         autoReplyGroups: process.env.FEISHU_AUTO_REPLY_GROUPS
-          ? process.env.FEISHU_AUTO_REPLY_GROUPS.split(',').map(s => s.trim())
+          ? process.env.FEISHU_AUTO_REPLY_GROUPS.split(',').map((s) => s.trim())
           : undefined,
       }
     : undefined;
@@ -44,7 +44,7 @@ export function loadConfig(): Config {
     defaultModel: process.env.MODEL || 'anthropic/claude-3-5-sonnet-20241022',
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     workspaceDir,
-    containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '300000', 10),
+    containerTimeout: parseInt(process.env.CONTAINER_TIMEOUT || '600000', 10),
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
     feishu: feishuConfig,
