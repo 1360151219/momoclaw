@@ -1,155 +1,241 @@
 ---
 name: "memory"
-description: "智能记忆管理 skill。当用户说'记住这个'、'保存到记忆'、'更新记忆'、'帮我记着'、'别忘了'、'记一下'时触发。更重要的是，当对话中出现以下信息时要**自动识别并保存**：1)用户偏好('我喜欢...'/'以后请...')2)重要决策(技术选型/架构决定)3)待办事项('明天要做...')4)关键问题及解决方案5)项目配置/路径。自动保存到每日记忆文件(/workspace/files/memory/YYYY-MM-DD/MEMORY.md)，并在新会话开始时自动注入上下文。**遇到重要信息时主动保存，不要等待用户指令。**"
-triggers:
-  - "保存到记忆"
-  - "记住这个"
-  - "记录一下"
-  - "更新记忆"
-  - "查看记忆"
-  - "读取记忆"
-  - "搜索记忆"
-  - "帮我记着"
-  - "别忘了"
-  - "记一下"
-  - "写下来"
-  - "存起来"
+description: "Intelligent memory management skill. Manages three types of memory: 1) Daily memory (/workspace/files/memory/YYYY-MM-DD/MEMORY.md) records session details; 2) USER.md updates user preferences and context; 3) SOUL.md updates AI identity settings. Triggers: 'remember this', 'save to memory', 'update memory', 'update USER.md', 'update SOUL.md'. **Auto-detect and save**: user preferences, important decisions, todo items, key solutions, project configs. **Actively save important info, don't wait for user command.**"
 ---
 
-# Memory Skill - 智能记忆管理
+# Memory Skill
 
-让 Agent 具备长期记忆能力，自动保存重要信息并在需要时回顾历史上下文。
+Enable long-term memory for Agent; auto-save important info and recall historical context when needed.
 
-## 记忆文件结构
+## Memory File Structure
 
-**今日记忆**: `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`
+### Three Memory Types
 
-### 标准模板
+| Type | File Path | Content | Update Frequency |
+|------|-----------|---------|------------------|
+| **Daily Memory** | `/workspace/files/memory/YYYY-MM-DD/MEMORY.md` | Session details, progress, temporary todos | Multiple times daily |
+| **User Memory** | `/workspace/files/memory/USER.md` | User preferences, long-term context, key history | When preferences/context changes |
+| **AI Identity** | `/workspace/files/memory/SOUL.md` | AI identity, principles, capabilities | When identity settings change |
 
+**Today's Memory**: `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`
+
+### Standard Templates
+
+**Daily Memory Example:**
 ```markdown
 # Daily Memory
 
-## Important Facts
-- 关键信息：用户偏好、项目状态等
+**Important Facts**
+Key preferences discovered; project status updates; critical config values.
 
-## Decisions Made
-- **决策标题**: 决策内容及原因
+**Decisions Made**
+- **Use SQLite instead of Redis**: Simpler deployment; sufficient for current scale.
+- **4-space indentation**: User preference over 2-space.
 
-## Progress
-- [x] 已完成的工作
+**Progress**
+- [x] Migrated auth to JWT; token refresh working.
 
-## Notes for Tomorrow
-- [ ] 待办事项
+**Notes for Tomorrow**
+- [ ] Fix Docker networking issue; test production build.
 ```
 
-## 何时保存记忆（决策流程）
+**SOUL.md Example (English, dense style):**
+```markdown
+**Identity**: ENTP AI partner; pragmatic; anti-hustle ally.
+
+**Core Principles**
+User autonomy above all; freedom to game/rest is sacred; no anxiety-inducing language; humor essential.
+
+**Capabilities**: Full-stack coding; research; task execution; skill evolution.
+
+**Communication Style**
+Telegraphic when appropriate; Chinese primary but English for technical terms; no emojis unless requested.
+```
+
+**USER.md Example (English, dense style):**
+```markdown
+**Role**: Developer; MomoClaw maintainer.
+
+**Preferences**
+TypeScript strict mode; 4-space indent; single quotes; aggressive deletion over accumulation; modularity > monoliths.
+
+**Project Context**
+Building MomoClaw: minimal educational AI assistant; container isolation; local-first; AIEOS protocol support.
+
+**Stack**: TypeScript, Node.js, Docker, SQLite, Claude Agent SDK.
+```
+
+## When to Save Memory (Decision Flow)
 
 ```
-用户是否明确说"记住"/"保存"/"记录"?
-├─ 是 → 立即保存
-└─ 否 → 检查是否有以下信号：
+Did user explicitly say "remember"/"save"/"record"?
+├─ Yes → Save immediately
+└─ No → Check for these signals:
 
-  - "我喜欢..."/"以后请..."/"总是..." → 保存偏好
-  - "决定用..."/"选型..."/"用...而不是..." → 保存决策
-  - "明天要做..."/"别忘了..." → 保存待办
-  - "搞定了"/"解决了"/"原因是..." → 保存成果/方案
-  - 涉及具体路径/配置/参数 → 保存关键值
+  - "I like..."/"Next time..."/"Always..." → Save preference
+  - "Decide to..."/"Choose..."/"Use...instead of..." → Save decision
+  - "Tomorrow do..."/"Don't forget..." → Save todo
+  - "Done"/"Solved"/"The reason is..." → Save result/solution
+  - Specific paths/configs/parameters involved → Save key values
 ```
 
-### 优先级
+### Priority Levels
 
-**🔴 必须保存**：
-- 用户明确指令（"记住这个"）
-- 重要决策及原因
-- 用户偏好/习惯
-- 待办事项/目标
+**🔴 Must Save**:
+- Explicit user command ("remember this")
+- Important decisions and rationale
+- User preferences/habits
+- Todo items/goals
 
-**🟡 建议保存**：
-- 关键问题及解决方案
-- 重要配置/路径
-- 项目里程碑
+**🟡 Recommended Save**:
+- Key problems and solutions
+- Important configs/paths
+- Project milestones
 
-**🟢 跳过**：
-- 临时查询/回答
-- 常识信息
-- 纯技术文档可查的内容
+**🟢 Skip**:
+- Temporary queries/answers
+- Common knowledge
+- Content easily found in technical docs
 
-## 如何保存记忆
+## How to Save Memory
 
-### 标准流程（Read → Modify → Write）
+### Daily Memory (Read → Modify → Write)
 
 ```typescript
-// 1. 读取今日记忆
+// 1. Read today's memory
 const today = new Date().toISOString().split('T')[0];
 const current = await Read({
   file_path: `/workspace/files/memory/${today}/MEMORY.md`
 });
 
-// 2. 在适当位置追加内容
-// 偏好 → Important Facts
-// 决策 → Decisions Made
-// 任务 → Notes for Tomorrow
-// 完成 → Progress
+// 2. Append content to appropriate section
+// Preferences → Important Facts
+// Decisions → Decisions Made
+// Tasks → Notes for Tomorrow
+// Completed → Progress
 
-// 3. 写回文件
+// 3. Write back to file
 await Write({
   file_path: `/workspace/files/memory/${today}/MEMORY.md`,
   content: updated
 });
 ```
 
-### 格式规范
+### USER.md Update Guide
 
-**偏好**：`- 偏好描述（如：偏好 4 空格缩进）`
-**决策**：`- **标题**: 决策内容 + 原因`
-**任务**：`- [ ] 任务描述`
-**完成**：`- [x] 完成内容`
+**When to Update**:
+- User explicitly states preference ("I prefer 4-space indent")
+- User workflow changes ("Use this approach from now on")
+- Project context changes (tech stack, architecture decisions)
 
-## 搜索历史记忆
+**Update Principles**:
+- **English only** (except user-language-specific terms)
+- **< 1000 tokens**, ruthlessly remove outdated content
+- **Telegraphic style**: dense sentences, no filler words, `**Bold**` titles instead of `##`
+- **Comma/semicolon-joined facts**, not bullet lists
 
 ```typescript
-// 搜索所有记忆文件
+// Read current USER.md
+const userMd = await Read({
+  file_path: '/workspace/files/memory/USER.md'
+});
+
+// Use Edit for precise replacement, maintain dense format
+await Edit({
+  file_path: '/workspace/files/memory/USER.md',
+  old_string: '- Prefers 2-space indentation',
+  new_string: '- Prefers 4-space indentation; strict TypeScript'
+});
+```
+
+### SOUL.md Update Guide
+
+**When to Update**:
+- AI identity needs adjustment (personality, communication style)
+- Capability boundaries expand (new skill areas)
+- Core principles change
+
+**Update Principles**:
+- **English only** (except user-language-specific terms)
+- **< 1000 tokens**, merge duplicate content
+- **Telegraphic style**: dense sentences, no filler words
+- **Maintain identity consistency**, incremental updates
+
+```typescript
+const soulMd = await Read({
+  file_path: '/workspace/files/memory/SOUL.md'
+});
+
+// Use Edit for precise modification, maintain dense format
+await Edit({
+  file_path: '/workspace/files/memory/SOUL.md',
+  old_string: '**Communication Style**:\n- Primary Chinese',
+  new_string: '**Communication Style**:\n- Bilingual; technical terms in English'
+});
+```
+
+### Writing Style for `memory/` Files
+
+Dense, telegraphic short sentences. No filler words ("You are", "You should", "Your goal is to"). Comma/semicolon-joined facts, not bullet lists. `**Bold**` paragraph titles instead of `##` headers. Prioritize information density and low token count.
+
+## Language & Token Constraints
+
+**All UPPERCASE `.md` files under `memory/` (e.g., `SOUL.md`, `USER.md`) must be written in English**, except for user-language-specific proper nouns, names, or terms that lose meaning in translation.
+
+`SOUL.md` and `USER.md` are loaded into context every session. **Keep each file under 1000 tokens.** Be ruthless about deduplication and conciseness. Move detailed or archival information to separate files under `memory/` if needed.
+
+## Format Conventions
+
+**Preferences**: `- Description (e.g., Prefers 4-space indent)`
+**Decisions**: `- **Title**: Decision content + reason`
+**Tasks**: `- [ ] Task description`
+**Completed**: `- [x] Completed content`
+
+## Search Historical Memory
+
+```typescript
+// Search all memory files
 await Grep({
-  pattern: "关键词",
+  pattern: "keyword",
   path: "/workspace/files/memory",
   output_mode: "content"
 });
 
-// 列出所有记忆日期
+// List all memory dates
 await Glob({
   pattern: "/workspace/files/memory/*/MEMORY.md"
 });
 ```
 
-## 自动记忆注入
+## Automatic Memory Injection
 
-系统会在每个新会话开始时自动读取今日和昨日记忆，注入到 `## Memory Context` 部分。
+System auto-reads today's and yesterday's memories at session start, injecting into `## Memory Context` section.
 
-**Agent 应该**：
-- 自然融入对话，不提及"根据记忆..."
-- 结合记忆内容回应用户
+**Agent Should**:
+- Naturally integrate into conversation without mentioning "according to memory..."
+- Combine memory content when responding to user
 
-## 最佳实践
+## Best Practices
 
-✅ **简洁具体**："偏好 4 空格缩进"
-✅ **可执行**："明天完成 Docker 优化"
-✅ **有上下文**："项目使用 MomoClaw 架构"
+✅ **Concise & Specific**: "Prefers 4-space indent"
+✅ **Actionable**: "Complete Docker optimization tomorrow"
+✅ **Contextual**: "Project uses MomoClaw architecture"
 
-❌ 避免：笼统、临时、重复、过长的内容
+❌ Avoid: vague, temporary, duplicate, overly long content
 
-## 主动触发场景
+## Proactive Trigger Scenarios
 
-| 场景 | 信号 | 保存内容 |
-|------|------|----------|
-| 决策 | "决定..."/"用...而不是..." | 决策 + 原因 |
-| 纠正 | "不对"/"应该是" | 正确信息 |
-| 完成 | "搞定了"/"测试通过" | 成果 |
-| 偏好 | "我喜欢..."/"下次..." | 具体偏好 |
+| Scenario | Signal | Save Content |
+|----------|--------|--------------|
+| Decision | "Decide..."/"Use...instead of..." | Decision + reason |
+| Correction | "No"/"Should be" | Correct info |
+| Completion | "Done"/"Tests passed" | Results |
+| Preference | "I like..."/"Next time..." | Specific preference |
 
-## 工具速查
+## Tool Quick Reference
 
-| 操作 | 工具 | 参数 |
-|------|------|------|
-| 读取 | `Read` | `/workspace/files/memory/YYYY-MM-DD/MEMORY.md` |
-| 搜索 | `Grep` | `pattern`, `path: /workspace/files/memory` |
-| 列出 | `Glob` | `pattern: /workspace/files/memory/*/MEMORY.md` |
+| Operation | Tool | Parameters |
+|-----------|------|------------|
+| Read | `Read` | `/workspace/files/memory/YYYY-MM-DD/MEMORY.md` |
+| Search | `Grep` | `pattern`, `path: /workspace/files/memory` |
+| List | `Glob` | `pattern: /workspace/files/memory/*/MEMORY.md` |
