@@ -8,13 +8,11 @@ import type { FeishuConfig, FeishuMessage } from '../feishu/index.js';
 import {
   getSession,
   createSession,
-  addMessage,
-  getSessionMessages,
   listSessions,
 } from '../db/index.js';
-import { config, getApiConfig } from '../config.js';
-import { runContainerAgent } from '../container.js';
-import type { PromptPayload, Session } from '../types.js';
+import { config } from '../config.js';
+import { processChat } from './index.js';
+import type { Session } from '../types.js';
 
 interface FeishuChatOptions {
   feishuConfig: FeishuConfig;
@@ -57,36 +55,20 @@ async function handleStreamingMessage(
   // Get or create session for this chat
   const session = getOrCreateSession(message);
 
-  // Save user message
-  addMessage(session.id, 'user', message.content);
-
-  // Get history
-  const history = getSessionMessages(session.id, 50);
-
-  // Build payload
-  const payload: PromptPayload = {
-    session: {
-      ...session,
-      systemPrompt: session.systemPrompt || config.defaultSystemPrompt,
-    },
-    messages: history.slice(0, -1),
-    userInput: message.content,
-    apiConfig: getApiConfig(config, session.model || undefined),
-  };
-
   let responseText = '';
   let thinkingText = '';
 
   try {
-    const result = await runContainerAgent(
-      payload,
-      (chunk) => {
+    const result = await processChat({
+      content: message.content,
+      session,
+      onChunk: (chunk) => {
         console.log('[streaming chunk]', chunk);
         responseText += chunk;
         // Stream content updates in real-time
         updater.updateContent(responseText).catch(() => {});
       },
-      (event) => {
+      onToolEvent: (event) => {
         if (event.type === 'thinking') {
           console.log(`[streaming event ${event.type}]`, event.content);
           thinkingText += event.content;
@@ -105,14 +87,11 @@ async function handleStreamingMessage(
           updater.updateThinking(thinkingText).catch(() => {});
         }
       },
-    );
+    });
 
     if (result.success) {
-      const finalContent = responseText || result.content;
-      addMessage(session.id, 'assistant', finalContent, result.toolCalls);
-
       await updater.finalize({
-        text: finalContent,
+        text: result.content,
         thinking: thinkingText || undefined,
         model: session.model || config.defaultModel,
         elapsedMs: Date.now() - startTime,

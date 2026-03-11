@@ -11,6 +11,10 @@ export {
   deleteSession,
   updateSessionPrompt,
   updateSessionModel,
+  updateSessionSummary,
+  updateSessionConsolidation,
+  updateSession,
+  migrateSessionsTable,
 } from './sessions.js';
 
 // Message operations

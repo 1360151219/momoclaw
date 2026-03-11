@@ -6,6 +6,8 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   isActive: boolean;
+  summary?: string;
+  lastConsolidatedIndex?: number; // Index of last message consolidated into summary (nanobot-style)
 }
 
 export interface Message {

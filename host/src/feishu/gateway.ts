@@ -26,6 +26,7 @@ import {
   clearSessionMessages,
   listSessions,
   deleteSession,
+  getSessionMessages,
   getMapping,
   setMapping,
   deleteMapping,
@@ -395,6 +396,7 @@ export class FeishuGateway {
             '',
             '`/help` - Show this help message',
             '`/clear` - Clear conversation history',
+            '`/history` - Show current session message history',
             '`/list` - List all sessions',
             '`/new` - Create a new session',
             '`/status` - Show bot status',
@@ -406,6 +408,39 @@ export class FeishuGateway {
         clearSessionMessages(session.id);
         return {
           text: '🗑️ Conversation context cleared. Starting fresh!',
+        };
+      }
+
+      case 'history': {
+        const session = this.getOrCreateSession(message);
+        const messages = getSessionMessages(session.id, 1000);
+
+        if (messages.length === 0) {
+          return {
+            text: '📜 No messages in this session.',
+          };
+        }
+
+        const historyLines = messages.map((msg, index) => {
+          const roleEmoji = msg.role === 'user' ? '👤' : '🤖';
+          const date = new Date(msg.timestamp).toLocaleString('zh-CN', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          const preview = msg.content.length > 100
+            ? msg.content.slice(0, 100) + '...'
+            : msg.content;
+          return `${index + 1}. ${roleEmoji} **${msg.role}** (${date})\n   > ${preview}`;
+        });
+
+        return {
+          text: [
+            `📜 **Session History** (${messages.length} messages)`,
+            '',
+            ...historyLines,
+          ].join('\n'),
         };
       }
 

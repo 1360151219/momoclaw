@@ -11,8 +11,10 @@ import {
   updateSessionModel,
   updateSessionPrompt,
   clearSessionMessages,
+  updateSession,
 } from '../db/index.js';
 import { runContainerAgent } from '../container.js';
+import { getContextWindow, compressContext } from '../hooks/index.js';
 import { PromptPayload, ToolEvent, Session, ToolCall } from '../types.js';
 import {
   LoadingSpinner,
@@ -32,6 +34,16 @@ export interface ChatOptions {
 export interface ChatInput {
   content: string;
   session: Session;
+  /**
+   * Optional callback for receiving response chunks as they arrive.
+   * Enables real-time streaming output.
+   */
+  onChunk?: (chunk: string) => void;
+  /**
+   * Optional callback for tool events.
+   * If provided, enables streaming tool event handling.
+   */
+  onToolEvent?: (event: ToolEvent) => void;
 }
 
 export interface ChatOutput {
@@ -47,23 +59,49 @@ export interface ChatOutput {
  */
 export async function processChat(input: ChatInput): Promise<ChatOutput> {
   const { content, session } = input;
+  const apiConfig = getApiConfig(config, session.model || undefined);
 
   // Save user message
   addMessage(session.id, 'user', content);
 
-  // Get history
-  const history = getSessionMessages(session.id, 50);
+  // Get history (all messages, we use sliding window instead of deletion)
+  const allMessages = getSessionMessages(session.id, 1000); // Get more since we don't delete
 
-  // Build payload
+  // Use sliding window to get recent messages within token limit
+  const contextWindow = getContextWindow(session, allMessages, 50);
+
+  // Trigger async context compression if threshold reached
+  if (contextWindow.shouldCompress) {
+    const compressionDeps = {
+      getMessages: getSessionMessages,
+      updateSession: updateSession,
+      getSession: getSession,
+      apiConfig,
+    };
+    // Fire and forget - don't block chat response
+    compressContext(compressionDeps, session.id).catch((err) => {
+      console.error('[Chat] Context compression failed:', err);
+    });
+  }
+
+  // Build payload with context window
   const payload: PromptPayload = {
     session: {
       ...session,
       systemPrompt: session.systemPrompt || config.defaultSystemPrompt,
     },
-    messages: history.slice(0, -1),
+    messages: contextWindow.messages.slice(0, -1), // Exclude current message
     userInput: content,
-    apiConfig: getApiConfig(config, session.model || undefined),
+    apiConfig: apiConfig,
   };
+
+  // Add summary to memory context if available (messages before consolidated index)
+  if (session.summary) {
+    payload.memory = {
+      todayPath: '',
+      recentContent: `${session.summary}`,
+    };
+  }
 
   let contentBuffer = '';
 
@@ -72,10 +110,10 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
       payload,
       (chunk) => {
         contentBuffer += chunk;
+        // Forward chunk to callback if provided for real-time streaming
+        input.onChunk?.(chunk);
       },
-      () => {
-        // Tool events handled internally by container
-      },
+      input.onToolEvent || (() => {}),
     );
 
     if (result.success) {
@@ -168,11 +206,33 @@ export async function startInteractiveChat(
         return;
       }
 
-      // Process chat
+      if (trimmed === '/history') {
+        const messages = getSessionMessages(session!.id, 1000);
+        if (messages.length === 0) {
+          console.log(kleur.gray('No messages in this session.'));
+        } else {
+          console.log(kleur.cyan(`\n📜 Session History (${messages.length} messages):\n`));
+          for (const msg of messages) {
+            const roleColor = msg.role === 'user' ? kleur.blue : kleur.green;
+            const date = new Date(msg.timestamp).toLocaleString();
+            const preview = msg.content.length > 80
+              ? msg.content.slice(0, 80) + '...'
+              : msg.content;
+            console.log(`${roleColor(`[${msg.role}]`)} ${kleur.gray(date)}`);
+            console.log(`  ${preview}\n`);
+          }
+        }
+        askQuestion();
+        return;
+      }
+
+      // Process chat using the unified processChat function
       const spinner = new LoadingSpinner('Thinking');
       spinner.start();
 
       let hasStartedOutput = false;
+      let contentBuffer = '';
+
       const handleToolEvent = (event: ToolEvent) => {
         if (!hasStartedOutput) {
           spinner.stop();
@@ -189,25 +249,10 @@ export async function startInteractiveChat(
       };
 
       try {
-        // Get history
-        addMessage(session!.id, 'user', trimmed);
-        const history = getSessionMessages(session!.id, 50);
-
-        // Build payload
-        const payload: PromptPayload = {
-          session: {
-            ...session!,
-            systemPrompt: session!.systemPrompt || config.defaultSystemPrompt,
-          },
-          messages: history.slice(0, -1),
-          userInput: trimmed,
-          apiConfig: getApiConfig(config, session!.model || undefined),
-        };
-
-        let contentBuffer = '';
-        const result = await runContainerAgent(
-          payload,
-          (chunk) => {
+        const result = await processChat({
+          content: trimmed,
+          session: session!,
+          onChunk: (chunk) => {
             if (!hasStartedOutput) {
               spinner.stop();
               hasStartedOutput = true;
@@ -216,22 +261,30 @@ export async function startInteractiveChat(
             process.stdout.write(chunk);
             contentBuffer += chunk;
           },
-          handleToolEvent,
-        );
+          onToolEvent: (event) => {
+            // Handle streaming output for CLI
+            if (
+              event.type === 'thinking' ||
+              event.type === 'tool_use' ||
+              event.type === 'tool_result'
+            ) {
+              handleToolEvent(event);
+            }
+          },
+        });
 
         if (!hasStartedOutput) {
           spinner.stop();
         }
 
         if (result.success) {
-          const finalContent = contentBuffer || result.content;
           if (contentBuffer && !contentBuffer.endsWith('\n')) {
             console.log();
-          } else if (!contentBuffer && finalContent) {
+          } else if (!contentBuffer && result.content) {
             console.log();
-            console.log(finalContent);
+            console.log(result.content);
           }
-          addMessage(session!.id, 'assistant', finalContent, result.toolCalls);
+          // Note: processChat already saves the assistant message to DB
         } else {
           displayError(result.error || 'Unknown error');
         }

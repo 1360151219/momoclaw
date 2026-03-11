@@ -2,7 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, HookCallback, PreCompactHookInput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 import {
   PromptPayload,
@@ -47,6 +47,39 @@ function writeOutput(output: ContainerResult): void {
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2));
 }
 
+/**
+ * Create Summary Injector Hook for PreCompact event
+ *
+ * This hook is called by the SDK when it needs to compress context.
+ * We return a system message containing the conversation summary
+ * that was prepared by the Host layer.
+ */
+function createSummaryInjectorHook(summary?: string): HookCallback {
+  return async (
+    input,
+    _toolUseID,
+    _options
+  ) => {
+    // Type guard for PreCompact hook
+    if (input.hook_event_name !== 'PreCompact') {
+      return {};
+    }
+
+    const preCompactInput = input as PreCompactHookInput;
+    log(`PreCompact hook triggered (${preCompactInput.trigger}) for session ${input.session_id}`);
+
+    // If we have a summary from the Host, inject it as a system message
+    if (summary) {
+      return {
+        systemMessage: `## Previous Conversation Context\n\n${summary}\n\n---\n\nRecent messages follow.`,
+      };
+    }
+
+    // No summary available, let SDK handle compression normally
+    return {};
+  };
+}
+
 async function runAgentWithSDK(
   payload: PromptPayload,
   onStream?: (text: string) => void,
@@ -58,7 +91,7 @@ async function runAgentWithSDK(
   const { session, messages, userInput, apiConfig, memory } = payload;
 
   // 构建完整 prompt：历史消息 + 当前用户输入
-  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.id}\n`;
+  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.id}\n- History Messages: \n`;
   for (const msg of messages) {
     if (msg.role === 'user') {
       fullPrompt += `User: ${msg.content}\n\n`;
@@ -66,14 +99,14 @@ async function runAgentWithSDK(
       fullPrompt += `Assistant: ${msg.content}\n\n`;
     }
   }
-  fullPrompt += `User: ${userInput}`;
+  fullPrompt += `Current User Input: ${userInput}`;
 
   // 构建增强的系统提示词（包含记忆内容）
   let enhancedSystemPrompt = session.systemPrompt || '';
 
-  // Add memory context if available
+  // Add memory context if available (includes summary from Host)
   if (memory?.recentContent) {
-    enhancedSystemPrompt += `\n\n## Memory Context\n\n${memory.recentContent}\n`;
+    enhancedSystemPrompt += `\n\n## Previous Conversation Summary\n\n${memory.recentContent}\n`;
   }
 
   // 设置环境变量供 SDK 使用
@@ -99,6 +132,9 @@ async function runAgentWithSDK(
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
   }
 
+  // Create PreCompact hook with summary from Host
+  const preCompactHook = createSummaryInjectorHook(memory?.recentContent);
+
   // 使用 Claude Agent SDK
   for await (const message of query({
     prompt: fullPrompt,
@@ -123,12 +159,15 @@ async function runAgentWithSDK(
         'WebFetch',
         'Skill',
         'TodoWrite',
-        'NotebookEdit',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       model: apiConfig.model,
+      // Register PreCompact hook for context compression
+      hooks: {
+        PreCompact: [{ hooks: [preCompactHook] }],
+      },
       mcpServers: {
         momoclaw_mcp: articleFetcherMcpServer,
         context7: {

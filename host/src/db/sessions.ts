@@ -13,7 +13,9 @@ export function initSessionsTable(db: any): void {
             model TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 0
+            is_active INTEGER NOT NULL DEFAULT 0,
+            summary TEXT,
+            last_consolidated_index INTEGER DEFAULT -1
         )
     `);
 }
@@ -45,6 +47,7 @@ export function createSession(
         createdAt: now,
         updatedAt: now,
         isActive: true,
+        summary: undefined,
     };
 }
 
@@ -62,6 +65,8 @@ export function getSession(id: string): Session | undefined {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         isActive: row.is_active === 1,
+        summary: row.summary,
+        lastConsolidatedIndex: row.last_consolidated_index ?? -1,
     };
 }
 
@@ -79,6 +84,8 @@ export function getActiveSession(): Session | undefined {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         isActive: true,
+        summary: row.summary,
+        lastConsolidatedIndex: row.last_consolidated_index ?? -1,
     };
 }
 
@@ -94,6 +101,8 @@ export function listSessions(): Session[] {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         isActive: row.is_active === 1,
+        summary: row.summary,
+        lastConsolidatedIndex: row.last_consolidated_index ?? -1,
     }));
 }
 
@@ -131,4 +140,73 @@ export function updateSessionModel(id: string, model: string): boolean {
     const result = db.prepare('UPDATE sessions SET model = ?, updated_at = ? WHERE id = ?')
         .run(model, Date.now(), id);
     return result.changes > 0;
+}
+
+export function updateSessionSummary(id: string, summary: string): boolean {
+    const db = getDb();
+    const result = db.prepare('UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?')
+        .run(summary, Date.now(), id);
+    return result.changes > 0;
+}
+
+export function updateSessionConsolidation(
+    id: string,
+    summary: string,
+    lastConsolidatedIndex: number
+): boolean {
+    const db = getDb();
+    const result = db.prepare(
+        'UPDATE sessions SET summary = ?, last_consolidated_index = ?, updated_at = ? WHERE id = ?'
+    ).run(summary, lastConsolidatedIndex, Date.now(), id);
+    return result.changes > 0;
+}
+
+export function updateSession(
+    id: string,
+    updates: { summary?: string; lastConsolidatedIndex?: number }
+): boolean {
+    const db = getDb();
+    const fields: string[] = [];
+    const values: (string | number)[] = [];
+
+    if (updates.summary !== undefined) {
+        fields.push('summary = ?');
+        values.push(updates.summary);
+    }
+
+    if (updates.lastConsolidatedIndex !== undefined) {
+        fields.push('last_consolidated_index = ?');
+        values.push(updates.lastConsolidatedIndex);
+    }
+
+    if (fields.length === 0) {
+        return false;
+    }
+
+    fields.push('updated_at = ?');
+    values.push(Date.now());
+    values.push(id);
+
+    const result = db.prepare(
+        `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`
+    ).run(...values);
+
+    return result.changes > 0;
+}
+
+export function migrateSessionsTable(db: any): void {
+    // Check if summary column exists
+    const columns = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const hasSummary = columns.some(col => col.name === 'summary');
+
+    if (!hasSummary) {
+        db.exec('ALTER TABLE sessions ADD COLUMN summary TEXT');
+    }
+
+    // Check if last_consolidated_index column exists
+    const hasConsolidatedIndex = columns.some(col => col.name === 'last_consolidated_index');
+
+    if (!hasConsolidatedIndex) {
+        db.exec('ALTER TABLE sessions ADD COLUMN last_consolidated_index INTEGER DEFAULT -1');
+    }
 }
