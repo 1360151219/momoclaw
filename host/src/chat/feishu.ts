@@ -92,6 +92,17 @@ async function handleStreamingMessage(
           thinkingText += event.content;
           // Stream thinking updates in real-time
           updater.updateThinking(thinkingText).catch(() => {});
+        } else if (event.type === 'tool_use') {
+          const toolCall = event.toolCall;
+          const toolInfo = `\n🔧 **Tool Use**: \`${toolCall.name}\`\n\`\`\`json\n${JSON.stringify(toolCall.arguments, null, 2)}\n\`\`\`\n`;
+          thinkingText += toolInfo;
+          console.log(`[streaming event ${event.type}]`, toolCall.name);
+          updater.updateThinking(thinkingText).catch(() => {});
+        } else if (event.type === 'tool_result') {
+          const resultInfo = `\n✅ **Tool Result** (ID: ${event.toolCallId}):\n\`\`\`\n${event.result.slice(0, 500)}${event.result.length > 500 ? '...' : ''}\n\`\`\`\n`;
+          thinkingText += resultInfo;
+          console.log(`[streaming event ${event.type}]`, event.toolCallId);
+          updater.updateThinking(thinkingText).catch(() => {});
         }
       },
     );

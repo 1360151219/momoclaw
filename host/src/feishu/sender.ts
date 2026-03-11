@@ -177,10 +177,14 @@ export class FeishuSender {
         data: { content, sequence },
       });
       if (res.code !== 0) {
-        log.warn(`Failed to update card element ${elementId}, sequence ${sequence}: ${res.msg}`);
+        log.warn(
+          `Failed to update card element ${elementId}, sequence ${sequence}: ${res.msg}`,
+        );
       }
     } catch (err) {
-      log.warn(`Failed to update card element ${elementId}, sequence ${sequence}: ${err}`);
+      log.warn(
+        `Failed to update card element ${elementId}, sequence ${sequence}: ${err}`,
+      );
     }
   }
 
@@ -330,11 +334,6 @@ export class FeishuSender {
       body: {
         elements: [
           {
-            tag: 'markdown',
-            element_id: STREAM_EL.mainMd,
-            content: '',
-          },
-          {
             tag: 'collapsible_panel',
             element_id: STREAM_EL.thinkingPanel, // 可直接删除整个面板
             expanded: false,
@@ -350,13 +349,19 @@ export class FeishuSender {
               icon_expanded_angle: -180, // ← 展开时旋转180度
             },
             elements: [
-              { tag: 'hr' }, // ← 分隔线在里面
+              { tag: 'hr' },
               {
                 tag: 'markdown',
                 element_id: STREAM_EL.thinkingMd,
                 content: '_思考中..._',
               },
             ],
+          },
+          { tag: 'hr' },
+          {
+            tag: 'markdown',
+            element_id: STREAM_EL.mainMd,
+            content: '',
           },
         ],
       },

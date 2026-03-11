@@ -190,15 +190,18 @@ export class FeishuGateway {
         { replyToMessageId: message.id },
       );
     } finally {
-      // Remove reaction
+      // Remove reaction and add DONE reaction
       const reactionId = this.activeReactions.get(message.id);
       if (reactionId) {
         await this.sender.removeReaction(message.id, reactionId);
         this.activeReactions.delete(message.id);
       }
+      await this.sender.addReaction(message.id, 'DONE');
     }
   }
-
+  /**
+   * Handle message with streaming response
+   */
   private async handleStreamingMessage(
     message: FeishuMessage,
     onStream: StreamHandler,
@@ -244,7 +247,7 @@ export class FeishuGateway {
 
     const updater: StreamUpdater = {
       updateThinking: async (text: string) => {
-        thinkingText += text;
+        thinkingText = text;
         hasThinkingContent = true;
         const currentSeq = sequence++;
         await enqueueUpdate(() =>
@@ -258,7 +261,7 @@ export class FeishuGateway {
       },
 
       updateContent: async (text: string) => {
-        mainText += text;
+        mainText = text;
         const currentSeq = sequence++;
         await enqueueUpdate(() =>
           this.sender.updateCard(
@@ -290,7 +293,7 @@ export class FeishuGateway {
 
       finalize: async (response: FeishuResponse) => {
         // Final content update
-        mainText = response.text || mainText;
+        mainText = response.text;
 
         const mainSeq = sequence++;
         await enqueueUpdate(() =>
@@ -390,11 +393,10 @@ export class FeishuGateway {
           .map((s, index) => {
             const isCurrent = s.id === session.id;
             const date = new Date(s.updatedAt).toLocaleString('zh-CN');
-            const prefix = isCurrent ? '👉 ' : '   ';
-            return `${prefix}${index + 1}. ${s.name} (${date})`;
+            const prefix = isCurrent ? '🌟 ' : '   ';
+            return `${index + 1}. ${prefix}${s.name} (${date})`;
           })
-          .join('\n');
-
+          .join('\n\n');
         const text =
           sessions.length === 0
             ? 'No sessions found.'
