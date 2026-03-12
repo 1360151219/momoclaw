@@ -1,0 +1,23 @@
+{
+  "skill_name": "doc-writing-style",
+  "evals": [
+    {
+      "id": 1,
+      "name": "mcp-server-tutorial",
+      "prompt": "Write a technical blog post about how to build an MCP (Model Context Protocol) server. Make it engaging and practical, with code examples and a conversational tone. Target audience is developers who want to extend AI tools.",
+      "expected_output": "A blog post with: relatable hook about why MCP matters, practical code examples early, conversational tone with 'I' and 'you', tables showing commands/configs, expert quotes if relevant, personal anecdotes, and a CTA at the end"
+    },
+    {
+      "id": 2,
+      "name": "agent-architecture-guide",
+      "prompt": "Create an architecture documentation piece explaining the difference between ReAct agents and long-horizon agents. Use the engaging, scenario-driven writing style. Include practical implementation tips.",
+      "expected_output": "Architecture doc with: story-driven intro about agent evolution, visual comparisons (tables/diagrams), practical implementation code, personal opinions on tradeoffs, expert validation, and community CTA"
+    },
+    {
+      "id": 3,
+      "name": "prompt-engineering-tips",
+      "prompt": "Write a tutorial on advanced prompt engineering techniques for Claude. Make it fun and practical - start with immediate value, use the conversational blogger style, include real prompt examples.",
+      "expected_output": "Tutorial with: catchy hook about prompt engineering struggles, table of ready-to-use prompts upfront, explanation of why they work, code examples, personal tips, and engaging conclusion with next steps"
+    }
+  ]
+}

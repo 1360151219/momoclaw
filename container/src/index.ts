@@ -127,9 +127,6 @@ async function runAgentWithSDK(
   const toolCalls: ToolCall[] = [];
   let hasStartedStreaming = false;
 
-  // Helper function to check if a tool is a cron tool
-  const isCronTool = (name: string): boolean => CRON_TOOLS.includes(name);
-
   // 确保 workspace 目录存在
   if (!fs.existsSync(WORKSPACE_DIR)) {
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
@@ -138,7 +135,7 @@ async function runAgentWithSDK(
   // Create PreCompact hook with summary from Host
   const preCompactHook = createSummaryInjectorHook(memory?.recentContent);
 
-  if (true) {
+  if (process.env.DEBUG) {
     const originContent = fs.readFileSync(
       path.join(WORKSPACE_DIR, 'debug-prompt.json'),
       'utf-8',

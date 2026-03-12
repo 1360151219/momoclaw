@@ -87,7 +87,7 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
     channelContext: input.channelContext,
     memory: {
       todayPath: '',
-      recentContent: `${session.summary}`,
+      recentContent: session.summary || '',
     },
   };
 

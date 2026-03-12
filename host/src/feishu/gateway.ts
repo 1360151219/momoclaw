@@ -33,6 +33,7 @@ export interface GatewayOptions {
 export type StreamHandler = (
   message: FeishuMessage,
   updater: StreamUpdater,
+  sessionCache: Map<string, string>,
 ) => Promise<void>;
 
 export interface StreamUpdater {
@@ -195,7 +196,7 @@ export class FeishuGateway {
 
       // Use streaming if handler provided
       if (options.onStream) {
-        await this.handleStreamingMessage(message, options.onStream);
+        await this.handleStreamingMessage(message, options.onStream, this.sessionCache);
       } else if (options.onMessage) {
         // Fallback to simple response
         const startTime = Date.now();
@@ -228,6 +229,7 @@ export class FeishuGateway {
   private async handleStreamingMessage(
     message: FeishuMessage,
     onStream: StreamHandler,
+    sessionCache: Map<string, string>,
   ): Promise<void> {
     // Create and send card immediately for fastest response
     const cardId = await this.sender.createStreamingCard();
@@ -379,7 +381,7 @@ export class FeishuGateway {
       },
     };
 
-    await onStream(message, updater);
+    await onStream(message, updater, sessionCache);
   }
 
   private formatStats(response: FeishuResponse): string | null {
