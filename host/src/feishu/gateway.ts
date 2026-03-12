@@ -19,20 +19,9 @@ import {
   fetchBotInfo,
   toCredentials,
 } from './client.js';
-import { parseMessage, isSlashCommand } from './receiver.js';
-import {
-  getSession,
-  createSession,
-  clearSessionMessages,
-  listSessions,
-  deleteSession,
-  getSessionMessages,
-  getMapping,
-  setMapping,
-  deleteMapping,
-  listMappings,
-} from '../db/index.js';
-import type { Session } from '../types.js';
+import { parseMessage } from './receiver.js';
+import { listMappings } from '../db/index.js';
+import { parseCommand, executeCommand, CommandContext } from './commands.js';
 
 const log = logger('feishu:gateway');
 
@@ -186,9 +175,18 @@ export class FeishuGateway {
 
     try {
       // Handle slash commands
-      const command = isSlashCommand(message.content);
+      const command = parseCommand(message.content);
       if (command) {
-        const response = await this.handleCommand(command, message);
+        const context: CommandContext = {
+          chatId: message.chatId,
+          sessionCache: this.sessionCache,
+          botOpenId: this.botOpenId,
+        };
+        const response = await executeCommand(
+          command.command,
+          message,
+          context,
+        );
         await this.sender.sendCard(message.chatId, response, {
           replyToMessageId: message.id,
         });
@@ -382,197 +380,6 @@ export class FeishuGateway {
     };
 
     await onStream(message, updater);
-  }
-
-  private async handleCommand(
-    command: { command: string; args: string },
-    message: FeishuMessage,
-  ): Promise<FeishuResponse> {
-    switch (command.command.toLowerCase()) {
-      case 'help':
-        return {
-          text: [
-            '**MomoClaw Bot Commands**',
-            '',
-            '`/help` - Show this help message',
-            '`/clear` - Clear conversation history',
-            '`/history` - Show current session message history',
-            '`/list` - List all sessions',
-            '`/new` - Create a new session',
-            '`/status` - Show bot status',
-          ].join('\n'),
-        };
-
-      case 'clear': {
-        const session = this.getOrCreateSession(message);
-        clearSessionMessages(session.id);
-        return {
-          text: '🗑️ Conversation context cleared. Starting fresh!',
-        };
-      }
-
-      case 'history': {
-        const session = this.getOrCreateSession(message);
-        const messages = getSessionMessages(session.id, 1000);
-
-        if (messages.length === 0) {
-          return {
-            text: '📜 No messages in this session.',
-          };
-        }
-
-        const historyLines = messages.map((msg, index) => {
-          const roleEmoji = msg.role === 'user' ? '👤' : '🤖';
-          const date = new Date(msg.timestamp).toLocaleString('zh-CN', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          const preview = msg.content.length > 100
-            ? msg.content.slice(0, 100) + '...'
-            : msg.content;
-          return `${index + 1}. ${roleEmoji} **${msg.role}** (${date})\n   > ${preview}`;
-        });
-
-        return {
-          text: [
-            `📜 **Session History** (${messages.length} messages)`,
-            '',
-            ...historyLines,
-          ].join('\n'),
-        };
-      }
-
-      case 'list': {
-        const sessions = listSessions();
-        const session = this.getOrCreateSession(message);
-        const sessionList = sessions
-          .map((s, index) => {
-            const isCurrent = s.id === session.id;
-            const date = new Date(s.updatedAt).toLocaleString('zh-CN');
-            const prefix = isCurrent ? '🌟 ' : '   ';
-            return `${index + 1}. ${prefix}${s.name} (${date})`;
-          })
-          .join('\n\n');
-        const text =
-          sessions.length === 0
-            ? 'No sessions found.'
-            : `📋 **All Sessions** (${sessions.length} total):\n\n${sessionList}`;
-
-        return { text };
-      }
-
-      case 'new': {
-        const chatType = message.chatType === 'p2p' ? 'DM' : 'Group';
-        const newSessionId = `feishu_${message.chatId}_${Date.now()}`;
-
-        // Delete old session if exists (using cache to find it)
-        const oldSessionId = this.getCachedSessionId(message.chatId);
-        if (oldSessionId) {
-          deleteSession(oldSessionId);
-          log.info(
-            `Deleted old session ${oldSessionId} for chat ${message.chatId}`,
-          );
-        }
-
-        // Create new session
-        createSession(
-          newSessionId,
-          `Feishu ${chatType} ${message.chatId.slice(0, 8)}`,
-        );
-
-        // Update cache and persistent mapping
-        this.sessionCache.set(message.chatId, newSessionId);
-        setMapping(message.chatId, newSessionId);
-
-        return {
-          text: `✅ New session created! Session ID: \`${newSessionId}\``,
-        };
-      }
-
-      case 'status':
-        return {
-          text: [
-            '**MomoClaw Status**',
-            '',
-            `- Chat Type: ${message.chatType}`,
-            `- Chat ID: ${message.chatId}`,
-            `- Bot ID: ${this.botOpenId || 'unknown'}`,
-            `- SDK: @larksuiteoapi/node-sdk`,
-          ].join('\n'),
-        };
-
-      default:
-        return {
-          text: `Unknown command: \`/${command.command}\`. Type \`/help\` for available commands.`,
-        };
-    }
-  }
-
-  /**
-   * Get or create a session for the Feishu chat
-   * Uses in-memory cache first to reduce DB queries
-   */
-  private getOrCreateSession(message: FeishuMessage): Session {
-    const chatId = message.chatId;
-
-    // 1. Check memory cache first (O(1) lookup)
-    const cachedSessionId = this.sessionCache.get(chatId);
-    if (cachedSessionId) {
-      const session = getSession(cachedSessionId);
-      if (session) {
-        log.debug(`Cache hit for chat ${chatId} -> ${cachedSessionId}`);
-        return session;
-      }
-      // Cache stale, remove it and clean up DB mapping
-      this.sessionCache.delete(chatId);
-      deleteMapping(chatId);
-      log.debug(`Cleaned up stale cache and mapping for chat ${chatId}`);
-    }
-
-    // 2. Check persistent mapping storage
-    const mapping = getMapping(chatId);
-    if (mapping) {
-      const session = getSession(mapping.sessionId);
-      if (session) {
-        // Update cache
-        this.sessionCache.set(chatId, session.id);
-        log.debug(`DB mapping found for chat ${chatId} -> ${session.id}`);
-        return session;
-      }
-      // Mapping stale, clean it up
-      deleteMapping(chatId);
-      log.debug(`Cleaned up stale DB mapping for chat ${chatId}`);
-    }
-
-    // 3. Create new session
-    const chatType = message.chatType === 'p2p' ? 'DM' : 'Group';
-    const sessionId = `feishu_${chatId}_${Date.now()}`;
-    const session = createSession(
-      sessionId,
-      `Feishu ${chatType} ${chatId.slice(0, 8)}`,
-    );
-
-    // Update both cache and persistent storage
-    this.sessionCache.set(chatId, sessionId);
-    setMapping(chatId, sessionId);
-
-    log.info(`Created new session ${sessionId} for chat ${chatId}`);
-    return session;
-  }
-
-  /**
-   * Get cached session ID for a chat (for /new command to find old session)
-   */
-  private getCachedSessionId(chatId: string): string | undefined {
-    // Try cache first
-    const cached = this.sessionCache.get(chatId);
-    if (cached) return cached;
-
-    // Fallback to DB
-    const mapping = getMapping(chatId);
-    return mapping?.sessionId;
   }
 
   private formatStats(response: FeishuResponse): string | null {

@@ -1,6 +1,31 @@
 import { statSync } from 'fs';
-import { ScheduledTask, TaskRunLog, TaskStatus, ScheduleType } from '../types.js';
+import { ScheduledTask, TaskRunLog, TaskStatus, ScheduleType, ChannelType } from '../types.js';
 import { getDb } from './connection.js';
+
+// ========== Helper Functions ==========
+
+/**
+ * Map database row to ScheduledTask object
+ * Centralized mapping to avoid duplication
+ */
+function mapRowToScheduledTask(row: any): ScheduledTask {
+    return {
+        id: row.id,
+        sessionId: row.session_id,
+        prompt: row.prompt,
+        scheduleType: row.schedule_type,
+        scheduleValue: row.schedule_value,
+        status: row.status,
+        nextRun: row.next_run,
+        lastRun: row.last_run,
+        lastResult: row.last_result,
+        runCount: row.run_count,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        channelType: row.channel_type,
+        channelId: row.channel_id,
+    };
+}
 
 // ========== Table Initialization ==========
 
@@ -22,10 +47,13 @@ export function initTasksTable(db: any): void {
             run_count INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
+            channel_type TEXT CHECK(channel_type IN ('feishu', 'terminal', 'web')),
+            channel_id TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(next_run, status)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_channel ON scheduled_tasks(channel_type, channel_id)`);
 }
 
 /**
@@ -46,6 +74,23 @@ export function initTaskRunLogsTable(db: any): void {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_logs ON task_run_logs(task_id, executed_at)`);
 }
 
+/**
+ * Migrate the scheduled_tasks table to add new columns
+ */
+export function migrateTasksTable(db: any): void {
+    const tableInfo = db.prepare('PRAGMA table_info(scheduled_tasks)').all();
+    const columns = tableInfo.map((col: any) => col.name);
+
+    if (!columns.includes('channel_type')) {
+        db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN channel_type TEXT CHECK(channel_type IN ('feishu', 'terminal', 'web'))`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_channel ON scheduled_tasks(channel_type, channel_id)`);
+    }
+
+    if (!columns.includes('channel_id')) {
+        db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN channel_id TEXT`);
+    }
+}
+
 // ========== Scheduled Task Operations ==========
 
 export function createScheduledTask(
@@ -54,15 +99,17 @@ export function createScheduledTask(
     prompt: string,
     scheduleType: ScheduleType,
     scheduleValue: string,
-    nextRun: number
+    nextRun: number,
+    channelType?: ChannelType,
+    channelId?: string
 ): ScheduledTask {
     const db = getDb();
     const now = Date.now();
 
-    // 确保 session 存在（外键约束要求）
+    // Ensure session exists (foreign key constraint requirement)
     const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
     if (!existingSession) {
-        // 自动创建 session
+        // Auto-create session
         db.prepare(`
             INSERT INTO sessions (id, name, system_prompt, model, created_at, updated_at, is_active)
             VALUES (?, ?, ?, NULL, ?, ?, 0)
@@ -71,11 +118,11 @@ export function createScheduledTask(
 
     const stmt = db.prepare(`
         INSERT INTO scheduled_tasks
-        (id, session_id, prompt, schedule_type, schedule_value, status, next_run, run_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'active', ?, 0, ?, ?)
+        (id, session_id, prompt, schedule_type, schedule_value, status, next_run, run_count, created_at, updated_at, channel_type, channel_id)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)
     `);
 
-    stmt.run(id, sessionId, prompt, scheduleType, scheduleValue, nextRun, now, now);
+    stmt.run(id, sessionId, prompt, scheduleType, scheduleValue, nextRun, now, now, channelType || null, channelId || null);
 
     return {
         id,
@@ -88,6 +135,8 @@ export function createScheduledTask(
         runCount: 0,
         createdAt: now,
         updatedAt: now,
+        channelType,
+        channelId,
     };
 }
 
@@ -97,20 +146,7 @@ export function getScheduledTask(id: string): ScheduledTask | undefined {
 
     if (!row) return undefined;
 
-    return {
-        id: row.id,
-        sessionId: row.session_id,
-        prompt: row.prompt,
-        scheduleType: row.schedule_type,
-        scheduleValue: row.schedule_value,
-        status: row.status,
-        nextRun: row.next_run,
-        lastRun: row.last_run,
-        lastResult: row.last_result,
-        runCount: row.run_count,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-    };
+    return mapRowToScheduledTask(row);
 }
 
 export function listScheduledTasks(sessionId?: string): ScheduledTask[] {
@@ -123,20 +159,7 @@ export function listScheduledTasks(sessionId?: string): ScheduledTask[] {
         rows = db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC').all() as any[];
     }
 
-    return rows.map(row => ({
-        id: row.id,
-        sessionId: row.session_id,
-        prompt: row.prompt,
-        scheduleType: row.schedule_type,
-        scheduleValue: row.schedule_value,
-        status: row.status,
-        nextRun: row.next_run,
-        lastRun: row.last_run,
-        lastResult: row.last_result,
-        runCount: row.run_count,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-    }));
+    return rows.map(mapRowToScheduledTask);
 }
 
 export function getDueTasks(now: number = Date.now()): ScheduledTask[] {
@@ -145,20 +168,7 @@ export function getDueTasks(now: number = Date.now()): ScheduledTask[] {
         'SELECT * FROM scheduled_tasks WHERE next_run <= ? AND status = ? ORDER BY next_run ASC'
     ).all(now, 'active') as any[];
 
-    return rows.map(row => ({
-        id: row.id,
-        sessionId: row.session_id,
-        prompt: row.prompt,
-        scheduleType: row.schedule_type,
-        scheduleValue: row.schedule_value,
-        status: row.status,
-        nextRun: row.next_run,
-        lastRun: row.last_run,
-        lastResult: row.last_result,
-        runCount: row.run_count,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-    }));
+    return rows.map(mapRowToScheduledTask);
 }
 
 export function updateTaskAfterRun(
@@ -263,20 +273,20 @@ export function getTaskRunLogs(taskId: string, limit: number = 10): TaskRunLog[]
 // ========== Cleanup Operations ==========
 
 /**
- * 清理旧消息数据（会话过期清理）
- * @param maxAgeDays 消息保留的最大天数（默认30天）
- * @param keepLastN 每个会话至少保留的消息数量（默认10条）
+ * Clean up old message data (session expiration cleanup)
+ * @param maxAgeDays Maximum number of days to retain messages (default 30)
+ * @param keepLastN Minimum number of messages to retain per session (default 10)
  */
 export function cleanupOldMessages(maxAgeDays: number = 30, keepLastN: number = 10): number {
     const db = getDb();
     const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
 
-    // 获取所有会话ID
+    // Get all session IDs
     const sessions = db.prepare('SELECT id FROM sessions').all() as { id: string }[];
     let deletedCount = 0;
 
     for (const session of sessions) {
-        // 删除旧消息，但保留每个会话至少 keepLastN 条最新消息
+        // Delete old messages but retain at least keepLastN most recent messages per session
         const result = db.prepare(`
             DELETE FROM messages
             WHERE session_id = ?
@@ -292,13 +302,13 @@ export function cleanupOldMessages(maxAgeDays: number = 30, keepLastN: number = 
         deletedCount += result.changes;
     }
 
-    // 清理孤立的任务运行日志（关联任务已不存在）
+    // Clean up orphaned task run logs (associated task no longer exists)
     db.prepare(`
         DELETE FROM task_run_logs
         WHERE task_id NOT IN (SELECT id FROM scheduled_tasks)
     `).run();
 
-    // 清理已完成且执行时间超过 maxAgeDays 的一次性任务
+    // Clean up completed one-time tasks whose execution time exceeds maxAgeDays
     db.prepare(`
         DELETE FROM scheduled_tasks
         WHERE schedule_type = 'once'
@@ -310,7 +320,7 @@ export function cleanupOldMessages(maxAgeDays: number = 30, keepLastN: number = 
 }
 
 /**
- * 获取数据库统计信息
+ * Get database statistics
  */
 export function getDatabaseStats(): {
     sessions: number;
@@ -326,7 +336,7 @@ export function getDatabaseStats(): {
     const scheduledTasks = (db.prepare('SELECT COUNT(*) as count FROM scheduled_tasks').get() as { count: number }).count;
     const taskRunLogs = (db.prepare('SELECT COUNT(*) as count FROM task_run_logs').get() as { count: number }).count;
 
-    // 获取数据库文件大小
+    // Get database file size
     const dbPath = (db as any).name || '';
     let dbSizeBytes = 0;
     try {
@@ -334,7 +344,7 @@ export function getDatabaseStats(): {
             dbSizeBytes = statSync(dbPath).size;
         }
     } catch {
-        // 忽略错误
+        // Ignore errors
     }
 
     return { sessions, messages, scheduledTasks, taskRunLogs, dbSizeBytes };

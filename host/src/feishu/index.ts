@@ -6,7 +6,11 @@
 // Main exports
 export { FeishuGateway } from './gateway.js';
 export { FeishuSender, STREAM_EL } from './sender.js';
-export { parseMessage, isSlashCommand } from './receiver.js';
+export { parseMessage } from './receiver.js';
+export { parseCommand, executeCommand, getOrCreateSession } from './commands.js';
+export type { CommandContext } from './commands.js';
+export { startFeishuBot } from './bot.js';
+export { FeishuCronHandler } from './cronHandler.js';
 
 // SDK client utilities
 export {

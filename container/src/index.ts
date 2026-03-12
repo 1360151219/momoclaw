@@ -2,7 +2,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import { query, HookCallback, PreCompactHookInput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  HookCallback,
+  PreCompactHookInput,
+  SyncHookJSONOutput,
+} from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 import {
   PromptPayload,
@@ -55,18 +60,16 @@ function writeOutput(output: ContainerResult): void {
  * that was prepared by the Host layer.
  */
 function createSummaryInjectorHook(summary?: string): HookCallback {
-  return async (
-    input,
-    _toolUseID,
-    _options
-  ) => {
+  return async (input, _toolUseID, _options) => {
     // Type guard for PreCompact hook
     if (input.hook_event_name !== 'PreCompact') {
       return {};
     }
 
     const preCompactInput = input as PreCompactHookInput;
-    log(`PreCompact hook triggered (${preCompactInput.trigger}) for session ${input.session_id}`);
+    log(
+      `PreCompact hook triggered (${preCompactInput.trigger}) for session ${input.session_id}`,
+    );
 
     // If we have a summary from the Host, inject it as a system message
     if (summary) {
@@ -99,7 +102,7 @@ async function runAgentWithSDK(
       fullPrompt += `Assistant: ${msg.content}\n\n`;
     }
   }
-  fullPrompt += `Current User Input: ${userInput}`;
+  fullPrompt += `- Current User Input: ${userInput}`;
 
   // 构建增强的系统提示词（包含记忆内容）
   let enhancedSystemPrompt = session.systemPrompt || '';
@@ -134,6 +137,24 @@ async function runAgentWithSDK(
 
   // Create PreCompact hook with summary from Host
   const preCompactHook = createSummaryInjectorHook(memory?.recentContent);
+
+  if (true) {
+    const originContent = fs.readFileSync(
+      path.join(WORKSPACE_DIR, 'debug-prompt.json'),
+      'utf-8',
+    );
+    const originData = JSON.parse(originContent || '[]');
+    fs.writeFileSync(
+      path.join(WORKSPACE_DIR, 'debug-prompt.json'),
+      JSON.stringify([
+        ...originData,
+        {
+          userPrompt: fullPrompt,
+          systemPrompt: enhancedSystemPrompt,
+        },
+      ]),
+    );
+  }
 
   // 使用 Claude Agent SDK
   for await (const message of query({

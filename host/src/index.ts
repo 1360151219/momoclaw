@@ -3,10 +3,12 @@
 import { config } from './config.js';
 import { initDatabase } from './db/index.js';
 import { checkDockerAvailable, buildContainerImage } from './container.js';
-import { CronService, cronService as defaultCronService } from './cron.js';
+import { CronService } from './cron/index.js';
 import kleur from 'kleur';
-import { startInteractiveChat } from './chat/index.js';
-import { startFeishuBot } from './chat/feishu.js';
+import { startInteractiveChat, createCronServiceWithUI } from './cli/index.js';
+import { startFeishuBot } from './feishu/bot.js';
+import { channelRegistry } from './cron/sender.js';
+import { FeishuCronHandler } from './feishu/cronHandler.js';
 
 // Global instances
 let cronService: CronService;
@@ -25,7 +27,7 @@ async function initialize(): Promise<void> {
   }
 
   initDatabase(config.dbPath);
-  cronService = defaultCronService;
+  cronService = createCronServiceWithUI(60000);
   cronService.start();
 }
 
@@ -55,6 +57,9 @@ async function startFeishu(): Promise<void> {
     );
     process.exit(1);
   }
+
+  // Register Feishu channel handler for task result push
+  channelRegistry.register(new FeishuCronHandler(config.feishu));
 
   console.log(kleur.cyan('Starting Feishu bot...'));
   await startFeishuBot({ feishuConfig: config.feishu });

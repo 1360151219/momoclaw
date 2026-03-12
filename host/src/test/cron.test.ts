@@ -9,11 +9,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { CronService } from '../cron.js';
+import { CronService } from '../cron/index.js';
 import * as db from '../db/index.js';
 
 // Mock db 模块
-vi.mock('./db.js', () => ({
+vi.mock('../db/index.js', () => ({
   getDueTasks: vi.fn(),
   updateTaskAfterRun: vi.fn(),
   addTaskRunLog: vi.fn(),
@@ -24,12 +24,12 @@ vi.mock('./db.js', () => ({
 }));
 
 // Mock container 模块
-vi.mock('./container.js', () => ({
+vi.mock('../container.js', () => ({
   runContainerAgent: vi.fn(),
 }));
 
 // Mock config 模块
-vi.mock('./config.js', () => ({
+vi.mock('../config.js', () => ({
   getApiConfig: vi.fn(() => ({
     provider: 'anthropic' as const,
     model: 'claude-3-5-sonnet-20241022',
@@ -46,7 +46,7 @@ describe('CronService', () => {
   let service: CronService;
 
   beforeEach(() => {
-    service = new CronService(1000); // 使用较短的轮询间隔便于测试
+    service = new CronService({ pollIntervalMs: 1000 }); // 使用较短的轮询间隔便于测试
     vi.clearAllMocks();
   });
 
@@ -337,7 +337,7 @@ describe('CronService 集成测试', () => {
     });
 
     // 创建 service - 使用很长的轮询间隔，避免多次触发
-    service = new CronService(600000);
+    service = new CronService({ pollIntervalMs: 600000 });
 
     // 启动服务会触发 checkAndRunTasks
     service.start();
@@ -372,7 +372,7 @@ describe('CronService 集成测试', () => {
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
 
-    service = new CronService(600000);
+    service = new CronService({ pollIntervalMs: 600000 });
     service.start();
 
     await new Promise(resolve => setTimeout(resolve, 300));

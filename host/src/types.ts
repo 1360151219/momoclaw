@@ -32,6 +32,7 @@ export interface PromptPayload {
   userInput: string;
   apiConfig: ApiConfig;
   memory?: MemoryContext;
+  channelContext?: ChannelContext; // Source channel for result routing
 }
 
 export interface ApiConfig {
@@ -96,8 +97,27 @@ export interface MemoryContext {
 // Stream event types for real-time tool call display
 export type ToolEvent =
   | { type: 'tool_use'; toolCall: ToolCall }
-  | { type: 'tool_result'; toolCallId: string; result: string; subtype?: string }
+  | {
+      type: 'tool_result';
+      toolCallId: string;
+      result: string;
+      subtype?: string;
+    }
   | { type: 'thinking'; content: string };
+
+// Channel types for cross-channel notifications
+export type ChannelType = 'feishu' | 'terminal';
+
+export interface ChannelContext {
+  type: ChannelType;
+  channelId: string; // feishu: chat_id, terminal: session_id, web: ws_connection_id
+}
+
+export interface ChannelHandler {
+  readonly type: ChannelType;
+  sendMessage(channelId: string, content: string): Promise<void>;
+  isAvailable(): boolean;
+}
 
 // Scheduled task types
 export type ScheduleType = 'cron' | 'interval' | 'once';
@@ -109,7 +129,7 @@ export interface ScheduledTask {
   sessionId: string;
   prompt: string;
   scheduleType: ScheduleType;
-  scheduleValue: string;  // cron expression, interval seconds, or timestamp in milliseconds
+  scheduleValue: string; // cron expression, interval seconds, or timestamp in milliseconds
   status: TaskStatus;
   nextRun: number;
   lastRun?: number;
@@ -117,6 +137,8 @@ export interface ScheduledTask {
   runCount: number;
   createdAt: number;
   updatedAt: number;
+  channelType?: ChannelType; // Source channel for result push
+  channelId?: string; // Channel-specific ID for routing
 }
 
 export interface TaskRunLog {
@@ -127,4 +149,3 @@ export interface TaskRunLog {
   output: string;
   error?: string;
 }
-
