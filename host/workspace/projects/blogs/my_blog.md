@@ -1,5 +1,6 @@
-# 亲手造一只有灵魂的 AI 小龙虾是种什么体验？
+# 从黑盒到宠物：亲手造一只有灵魂的 AI 小龙虾是种什么体验？
 
+![cover](examples/cover.png)
 
 > "凌晨 3 点，我的手机突然亮了。打开一看，是我昨天'造'的小龙虾发来的消息：'主人，你明天的会议材料我准备好了，还有——别忘带伞，要下雨。'"
 
@@ -139,6 +140,101 @@ graph TD
 每次循环把上下文传给大模型：
 - 如果返回工具调用 → 执行工具 → 结果返回给模型
 - 如果返回文本 → 任务完成
+
+
+
+**Skill 系统：小龙虾的"外挂装备库"**
+
+有了 Agent Loop，小龙虾就能"思考-行动"了。但它**会什么**？这就要靠 **Skill（技能）** 系统。
+
+你可以把 Skill 想象成游戏中的**技能书**——每本书教给 AI 一个新能力，比如查天气、发邮件、操作数据库。不同的是，这些技能书是用**纯文本**写的，而且 AI 可以**自己编写新技能**。
+
+Skills 利用 Agent 所在的环境来提供仅靠提示词无法实现的能力。这种基于文件系统的架构实现了**渐进式披露**：Claude 根据需要分阶段加载信息，而不是预先消耗上下文。
+
+**三种 Skill 内容类型，三个加载级别**
+
+Skills 可以包含三种类型的内容，每种在不同时间加载：
+
+- 级别 1：元数据（始终加载）
+
+**内容类型：指令**。Skill 的 YAML 前置信息提供发现信息：
+
+```yaml
+---
+name: pdf-processing
+description: Extract text and tables from PDF files, fill forms, merge documents. Use when working with PDF files or when the user mentions PDFs, forms, or document extraction.
+---
+```
+
+Claude 在启动时加载此元数据并将其包含在系统提示中。这种轻量级方法意味着您可以安装许多 Skills 而不会产生上下文开销；Claude 只知道每个 Skill 的存在及其使用时机。
+
+- 级别 2：指令（触发时加载）
+
+**内容类型：指令**。[SKILL.md](SKILL.md) 的主体包含程序性知识：工作流程、最佳实践和指导：
+
+```markdown
+# PDF Processing
+
+## Quick start
+
+Use pdfplumber to extract text from PDFs:
+
+````
+import pdfplumber
+
+with pdfplumber.open("document.pdf") as pdf:
+    text = pdf.pages[0].extract_text()
+````
+
+For advanced form filling, see [FORMS.md](FORMS.md).
+```
+
+当您的请求与某个 Skill 的描述匹配时，Claude 通过 bash 从文件系统读取 [SKILL.md](SKILL.md)。只有在此时，这些内容才会进入上下文窗口。
+
+- 级别 3：资源和代码（按需加载）
+
+**内容类型：指令、代码和资源**。Skills 可以捆绑额外的材料：
+
+```
+pdf-skill/
+├── SKILL.md (main instructions)
+├── FORMS.md (form-filling guide)
+├── REFERENCE.md (detailed API reference)
+└── scripts/
+    └── fill_form.py (utility script)
+```
+
+- **指令**：额外的 markdown 文件（[FORMS.md](FORMS.md)、[REFERENCE.md](REFERENCE.md)），包含专门的指导和工作流程
+- **代码**：可执行脚本（fill_form.py、validate.py），Claude 通过 bash 运行；脚本提供确定性操作而不消耗上下文
+- **资源**：参考材料，如数据库模式、API 文档、模板或示例
+
+**执行流程一目了然**：
+
+```
+用户问"从 PDF 提取文本"
+        ↓
+大模型识别意图（基于级别 1 元数据）
+        ↓
+匹配 pdf-processing Skill → 触发加载 SKILL.md（级别 2）
+        ↓
+生成工具调用请求 → 按需读取 FORMS.md 或运行 scripts/（级别 3）
+        ↓
+执行 Tool 调用 → 返回结果
+```
+
+**内置 Tools 和自定义 Skills 的区别**：
+
+| 对比项 | 内置 Tools | 自定义 Skills |
+|--------|-----------|--------------|
+| **来源** | SDK 自带 | 用户/AI 编写 |
+| **安装** | 开箱即用 | 放入文件夹自动加载 |
+| **加载方式** | 始终可用 | 三级渐进加载 |
+| **功能** | 通用操作（读写文件等） | 业务特定（查天气、发邮件等） |
+| **更新** | 随 SDK 升级 | 可随时增删改 |
+| **示例** | `Read`, `Write`, `Edit` | `weather`, `github`, `email` |
+
+最妙的是：**你可以让小龙虾自己写 Skill**。给它一个需求，它会自动创建目录、编写 `SKILL.md`、实现功能代码，下次对话时立刻生效——这才是真正的**自主学习**。
+
 
 **但这一切不需要我们自己实现。**
 
