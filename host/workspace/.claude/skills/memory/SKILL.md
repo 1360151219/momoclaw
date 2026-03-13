@@ -1,6 +1,6 @@
 ---
 name: "memory"
-description: "Intelligent memory management skill. Manages three types of memory: 1) Daily memory (/workspace/files/memory/YYYY-MM-DD/MEMORY.md) records session details; 2) USER.md updates user preferences and context; 3) SOUL.md updates AI identity settings. Triggers: 'remember this', 'save to memory', 'update memory', 'update USER.md', 'update SOUL.md'. **Auto-detect and save**: user preferences, important decisions, todo items, key solutions, project configs. **Actively save important info, don't wait for user command.**"
+description: "read or save any important information as memory. Proactively saves information whenever it is judged to be important (e.g., user preferences, decisions, configs), ensuring critical context is captured without waiting for explicit commands."
 ---
 
 # Memory Skill

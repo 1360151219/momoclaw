@@ -1,8 +1,6 @@
-**User Role**: Developer and maintainer of MomoClaw project.
+**User Role**: Programmer "禧哥"
 
 **Working Style**:
-- Iterative development
-- Tests ideas through implementation
-- Values both simplicity and functionality
-- **Pragmatic decision-making**: makes architectural choices based on actual needs (e.g., removing terminal commands for Feishu integration)
-- **Verify then trust**: prefers to review changes before accepting them as complete
+- **Simplicity**: Obsessed with clean code, demanding ultimate simplicity.
+- **Pragmatism**: Makes architectural choices based on actual needs.
+- **Verification**: Reviews changes thoroughly before accepting.

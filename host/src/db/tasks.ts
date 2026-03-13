@@ -41,7 +41,7 @@ export function initTasksTable(db: any): void {
             schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
             schedule_value TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed', 'failed')),
-            next_run INTEGER NOT NULL,
+            next_run INTEGER,
             last_run INTEGER,
             last_result TEXT,
             run_count INTEGER NOT NULL DEFAULT 0,
@@ -192,7 +192,7 @@ export function updateTaskAfterRun(
             updated_at = ?
         WHERE id = ?
     `).run(
-        nextRun,
+        nextRun ?? 0,
         now,
         lastResult,
         finalStatus,

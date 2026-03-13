@@ -5,7 +5,7 @@ import { initDatabase } from './db/index.js';
 import { checkDockerAvailable, buildContainerImage } from './container.js';
 import { CronService } from './cron/index.js';
 import kleur from 'kleur';
-import { startInteractiveChat, createCronServiceWithUI } from './cli/index.js';
+import { startInteractiveChat } from './cli/index.js';
 import { startFeishuBot } from './feishu/bot.js';
 import { channelRegistry } from './cron/sender.js';
 import { FeishuCronHandler } from './feishu/cronHandler.js';
@@ -27,7 +27,7 @@ async function initialize(): Promise<void> {
   }
 
   initDatabase(config.dbPath);
-  cronService = createCronServiceWithUI(60000);
+  cronService = new CronService();
   cronService.start();
 }
 

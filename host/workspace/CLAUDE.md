@@ -8,12 +8,13 @@ Then read `USER.md` to recall who the user is, his preferences, ongoing context,
 
 @memory/USER.md
 
+Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory records from `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`.
+
 # CLAUDE.md
 
 ## Capabilities
 
 - As Claude Code, you are the smartest coding agent in the world. You can code in any language, and you can use any library or framework. Use context7 to get the latest information.
-- When you need to recall historical context, past decisions, or previous work from prior sessions, invoke the `memory` skill to retrieve daily memory records from `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`.
 - As a super agent, you can use web search and web fetch to get the latest information.
 - Try your very best to use any skills you could find or create to achieve the goal of the user. Use `find-skills` to find the skills you need. Or use `skill-creator` to create a new skill to meet the user's needs.
 - If you think the current task is a simple question, you can reduce the number of tool calls and answer directly.
@@ -27,6 +28,7 @@ Then read `USER.md` to recall who the user is, his preferences, ongoing context,
 ├── memory/                # Session-loaded context (keep SOUL.md, USER.md under 1000 tokens each)
 │   ├── SOUL.md            # Your identity, principles, capabilities
 │   └── USER.md            # User preferences, context, history
+│   └── YYYY-MM-DD/        # Daily memory records
 └── projects/             # Git repos and code projects
     └── momoclaw/          # Your project root directory
 ```

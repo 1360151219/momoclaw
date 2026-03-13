@@ -22,22 +22,9 @@ import {
     displayThinkingEvent,
 } from './ui.js';
 import { channelRegistry } from '../cron/sender.js';
-import { CronService } from '../cron/scheduler.js';
 
 export interface ChatOptions {
     sessionId?: string;
-}
-
-/**
- * Create a CronService instance with terminal UI callbacks
- */
-export function createCronServiceWithUI(pollIntervalMs?: number): CronService {
-    return new CronService({
-        pollIntervalMs,
-        onToolResult: (toolCallId, result, subtype) => {
-            displayToolResultEvent(toolCallId, result, subtype);
-        },
-    });
 }
 
 /**
