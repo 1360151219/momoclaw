@@ -115,13 +115,11 @@ async function runAgentWithSDK(
   // 设置环境变量供 SDK 使用
   const sdkEnv: Record<string, string | undefined> = {
     ...process.env,
+    ANTHROPIC_BASE_URL: apiConfig.baseUrl,
     ANTHROPIC_API_KEY: apiConfig.apiKey,
+    ANTHROPIC_AUTH_TOKEN: apiConfig.apiKey,
     CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
   };
-
-  if (apiConfig.baseUrl) {
-    sdkEnv.ANTHROPIC_BASE_URL = apiConfig.baseUrl;
-  }
 
   let finalContent = '';
   const toolCalls: ToolCall[] = [];
@@ -179,10 +177,10 @@ async function runAgentWithSDK(
         'TodoWrite',
       ],
       env: sdkEnv,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
+      permissionMode: 'acceptEdits',
+      allowDangerouslySkipPermissions: false, // 跟 root 权限冲突
       model: apiConfig.model,
-      // Register PreCompact hook for context compression
+      stderr: (data) => process.stderr.write(data),
       hooks: {
         PreCompact: [{ hooks: [preCompactHook] }],
       },
@@ -204,8 +202,8 @@ async function runAgentWithSDK(
           | `search_videos` | 搜索视频 | 按关键词搜索，支持分页 |
          */
         bilibili: {
-          command: 'npx',
-          args: ['-y', '@wangshunnn/bilibili-mcp-server'],
+          command: 'node',
+          args: ['/app/node_modules/.bin/bilibili-mcp-server'],
         },
         /**
          * ## GitHub MCP Server
@@ -214,8 +212,8 @@ async function runAgentWithSDK(
          *          create_issue, add_issue_comment
          */
         github: {
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-github'],
+          command: 'node',
+          args: ['/app/node_modules/.bin/mcp-server-github'],
           env: {
             GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
           },
@@ -352,6 +350,7 @@ async function main(): Promise<void> {
     writeOutput(output);
   } catch (err: any) {
     log(`Agent error: ${err.message}`);
+    while (true) {}
     const result: ContainerResult = {
       success: false,
       content: '',

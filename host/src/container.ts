@@ -190,10 +190,12 @@ export async function runContainerAgent(
       }
 
       if (code !== 0) {
+        const errorMsg = `Container exited with code ${code}.\nStderr: ${stderr}\nStdout (last 500 chars): ${stdout.slice(-500)}`;
+        console.error(errorMsg);
         resolve({
           success: false,
           content: '',
-          error: `Container exited with code ${code}. stderr: ${stderr}`,
+          error: errorMsg,
         });
         return;
       }
@@ -215,12 +217,26 @@ export async function runContainerAgent(
 
         // Handle cron actions from container (schedule, list, pause, resume, delete, logs)
         const cronToolPrefix = 'mcp__momoclaw_mcp__';
-        const cronActions = result.toolCalls?.filter(
-          (call) => call.name.startsWith(cronToolPrefix) &&
-                    ['schedule_task', 'list_scheduled_tasks', 'pause_task', 'resume_task', 'delete_task', 'get_task_logs'].includes(call.name.slice(cronToolPrefix.length))
-        ) || [];
+        const cronActions =
+          result.toolCalls?.filter(
+            (call) =>
+              call.name.startsWith(cronToolPrefix) &&
+              [
+                'schedule_task',
+                'list_scheduled_tasks',
+                'pause_task',
+                'resume_task',
+                'delete_task',
+                'get_task_logs',
+              ].includes(call.name.slice(cronToolPrefix.length)),
+          ) || [];
         if (cronActions.length > 0) {
-          await executeCronActions(cronActions, payload.session.id, onToolEvent, payload.channelContext);
+          await executeCronActions(
+            cronActions,
+            payload.session.id,
+            onToolEvent,
+            payload.channelContext,
+          );
         }
 
         resolve(result);
