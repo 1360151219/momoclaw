@@ -13,6 +13,11 @@ export interface FeishuConfig {
     autoReplyGroups?: string[];
 }
 
+export interface ImageAttachment {
+    fileKey: string;
+    type: 'image';
+}
+
 export interface FeishuMessage {
     id: string;
     chatId: string;
@@ -28,6 +33,8 @@ export interface FeishuMessage {
         name: string;
     }>;
     createTime?: number;
+    /** 图片附件列表（当消息包含图片时） */
+    images?: ImageAttachment[];
 }
 
 export interface FeishuResponse {

@@ -20,8 +20,9 @@ export {
     fetchBotInfo,
     toCredentials,
     clearClientCache,
+    downloadImageResource,
 } from './client.js';
-export type { RawMessageEvent, BotCredentials, BotInfo } from './client.js';
+export type { RawMessageEvent, BotCredentials, BotInfo, DownloadImageResult } from './client.js';
 
 // Types
 export type {
@@ -29,6 +30,7 @@ export type {
     FeishuMessage,
     FeishuResponse,
     MessageHandler,
+    ImageAttachment,
 } from './types.js';
 
 // Gateway types

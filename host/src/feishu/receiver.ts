@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { logger } from './logger.js';
-import type { FeishuConfig, FeishuMessage } from './types.js';
+import type { FeishuConfig, FeishuMessage, ImageAttachment } from './types.js';
 import type { RawMessageEvent } from './client.js';
 
 const log = logger('feishu:receiver');
@@ -99,7 +99,7 @@ export function parseMessage(
     }
 
     // Parse content based on message type
-    const content = extractContent(msg.content, msg.message_type);
+    const { content, images } = extractContent(msg.content, msg.message_type);
 
     return {
         id: msg.message_id,
@@ -111,45 +111,65 @@ export function parseMessage(
         threadId: msg.thread_id,
         parentId: msg.parent_id,
         mentions: msg.mentions,
+        images,
     };
 }
 
-function extractContent(content: string, msgType: string): string {
+interface ExtractResult {
+    content: string;
+    images?: ImageAttachment[];
+}
+
+function extractContent(content: string, msgType: string): ExtractResult {
+    log.info(`Extracting content from message type ${msgType}`);
     try {
         const parsed = JSON.parse(content);
 
         switch (msgType) {
             case 'text':
-                return parsed.text || '';
+                return { content: parsed.text || '' };
 
-            case 'post':
-                return extractRichText(parsed);
+            case 'post': {
+                const { text, images } = extractRichText(parsed);
+                return { content: text, images };
+            }
 
-            case 'image':
-                return '<image>';
+            case 'image': {
+                const fileKey = parsed.file_key || parsed.image_key;
+                const images: ImageAttachment[] = fileKey
+                    ? [{ fileKey, type: 'image' }]
+                    : [];
+                return { content: '', images };
+            }
 
             case 'file':
-                return `[file: ${parsed.file_name || 'unknown'}]`;
+                return { content: `[file: ${parsed.file_name || 'unknown'}]` };
 
             case 'audio':
-                return '<audio>';
+                return { content: '<audio>' };
 
             case 'video':
-                return '<video>';
+                return { content: '<video>' };
 
             default:
-                return content;
+                return { content };
         }
     } catch {
-        return content;
+        return { content };
     }
 }
 
-function extractRichText(parsed: Record<string, unknown>): string {
+interface RichTextResult {
+    text: string;
+    images: ImageAttachment[];
+}
+
+function extractRichText(parsed: Record<string, unknown>): RichTextResult {
     const title = parsed.title as string;
     const content = parsed.content as Array<Array<Record<string, unknown>>>;
 
     let text = title ? `# ${title}\n\n` : '';
+    const images: ImageAttachment[] = [];
 
     if (Array.isArray(content)) {
         for (const paragraph of content) {
@@ -171,12 +191,15 @@ function extractRichText(parsed: Record<string, unknown>): string {
                         part = `@${el.user_name || el.user_id}`;
                         break;
                     case 'code_block':
-                        part = `
-\`\`\`${el.language || ''}\n${el.text || ''}\n\`\`\``;
+                        part = `\n\`\`\`${el.language || ''}\n${el.text || ''}\n\`\`\``;
                         break;
-                    case 'img':
-                        part = '<image>';
+                    case 'img': {
+                        const imageKey = (el.image_key as string) || '';
+                        if (imageKey) {
+                            images.push({ fileKey: imageKey, type: 'image' });
+                        }
                         break;
+                    }
                 }
 
                 // Apply styles
@@ -190,7 +213,10 @@ function extractRichText(parsed: Record<string, unknown>): string {
         }
     }
 
-    return text.trim() || '[rich text]';
+    return {
+        text: text.trim() || '[rich text]',
+        images,
+    };
 }
 
 /**

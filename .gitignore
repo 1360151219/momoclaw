@@ -47,6 +47,8 @@ coverage/
 *.tmp
 *.temp
 .cache/
+host/workspace/temp/
+host/workspace/memory/
 
 # Docker
 *.log

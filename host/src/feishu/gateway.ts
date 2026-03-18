@@ -162,6 +162,7 @@ export class FeishuGateway {
     options: GatewayOptions,
   ): Promise<void> {
     const message = parseMessage(event, this.config, this.botOpenId);
+
     if (!message) return;
 
     log.info(
@@ -196,7 +197,11 @@ export class FeishuGateway {
 
       // Use streaming if handler provided
       if (options.onStream) {
-        await this.handleStreamingMessage(message, options.onStream, this.sessionCache);
+        await this.handleStreamingMessage(
+          message,
+          options.onStream,
+          this.sessionCache,
+        );
       } else if (options.onMessage) {
         // Fallback to simple response
         const startTime = Date.now();

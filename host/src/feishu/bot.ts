@@ -3,13 +3,19 @@
  * Bridges Feishu messages with MomoClaw's chat system
  */
 
-import { FeishuGateway } from './index.js';
-import type { FeishuConfig, FeishuMessage } from './index.js';
+import {
+  FeishuGateway,
+  downloadImageResource,
+  toCredentials,
+} from './index.js';
+import type { FeishuConfig, FeishuMessage, ImageAttachment } from './index.js';
 import { config } from '../config.js';
 import { processChat } from '../core/chatService.js';
 import type { Session, ChannelContext } from '../types.js';
 import { getOrCreateSession } from './commands.js';
 import type { CommandContext } from './commands.js';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, resolve } from 'path';
 
 interface FeishuChatOptions {
   feishuConfig: FeishuConfig;
@@ -32,6 +38,70 @@ export async function startFeishuBot(
       await handleStreamingMessage(message, updater, context);
     },
   });
+}
+
+/**
+ * Download and save image to workspace temp directory (accessible from container)
+ * Returns both host path and container path
+ */
+async function downloadAndSaveImage(
+  image: ImageAttachment,
+  messageId: string,
+  creds: ReturnType<typeof toCredentials>,
+): Promise<{ hostPath: string; containerPath: string } | null> {
+  // Save to workspaceDir so it's accessible from container
+  const tempDir = resolve(config.workspaceDir, 'temp', 'feishu-images');
+  if (!existsSync(tempDir)) {
+    mkdirSync(tempDir, { recursive: true });
+  }
+
+  const fileName = `${Date.now()}_${image.fileKey}.jpg`;
+  const hostPath = join(tempDir, fileName);
+
+  const result = await downloadImageResource(
+    creds,
+    hostPath,
+    messageId,
+    image.fileKey,
+  );
+
+  if (!result.ok) {
+    console.error(`[Feishu] Failed to download image: ${result.error}`);
+    return null;
+  }
+
+  // Container sees workspaceDir as /workspace/files
+  const containerPath = join('/workspace/files', 'temp', 'feishu-images', fileName);
+
+  return { hostPath, containerPath };
+}
+
+/**
+ * Process images for a message: download and format as <image: path> tags
+ * Uses container paths so Agent can read the images
+ */
+async function processImagesForMessage(
+  message: FeishuMessage,
+  feishuConfig: FeishuConfig,
+): Promise<string> {
+  if (!message.images?.length) {
+    return message.content;
+  }
+
+  const creds = toCredentials(feishuConfig);
+  const containerPaths: string[] = [];
+
+  for (const image of message.images) {
+    const path = await downloadAndSaveImage(image, message.id, creds);
+    if (path) containerPaths.push(path.containerPath);
+  }
+
+  if (!containerPaths.length) {
+    return message.content;
+  }
+
+  const imageTags = containerPaths.map((p) => `<image: ${p}>`).join('\n');
+  return `${message.content.trim()}\n${imageTags}`;
 }
 
 /**
@@ -66,9 +136,14 @@ async function handleStreamingMessage(
   let responseText = '';
   let thinkingText = '';
 
+  const feishuConfig = config.feishu;
+  const processedContent = feishuConfig
+    ? await processImagesForMessage(message, feishuConfig)
+    : message.content;
+
   try {
     const result = await processChat({
-      content: message.content,
+      content: processedContent,
       session,
       channelContext,
       onChunk: (chunk) => {
