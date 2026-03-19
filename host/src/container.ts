@@ -54,6 +54,118 @@ function findProjectRoot(startPath: string): string {
   }
 }
 
+// --- 容器保活与超时销毁机制 ---
+interface ActiveContainer {
+  sessionId: string;
+  containerName: string;
+  sessionDir: string;
+  lastAccessed: number;
+}
+
+const activeContainers = new Map<string, ActiveContainer>();
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30分钟无新对话则销毁
+
+// 定时清理过期容器
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, container] of activeContainers.entries()) {
+    if (now - container.lastAccessed > IDLE_TIMEOUT_MS) {
+      console.log(
+        `[ContainerManager] 容器 ${container.containerName} 超过 ${IDLE_TIMEOUT_MS / 60000} 分钟空闲，准备销毁...`,
+      );
+      try {
+        spawn('docker', ['rm', '-f', container.containerName]);
+        rmSync(container.sessionDir, { recursive: true, force: true });
+      } catch (err) {
+        console.error(
+          `[ContainerManager] 清理容器 ${container.containerName} 失败:`,
+          err,
+        );
+      }
+      activeContainers.delete(sessionId);
+    }
+  }
+}, 60 * 1000); // 每分钟检查一次
+
+// 进程退出时清理所有活跃容器
+process.on('exit', () => {
+  for (const container of activeContainers.values()) {
+    try {
+      spawn('docker', ['rm', '-f', container.containerName]);
+      rmSync(container.sessionDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+process.on('SIGINT', () => process.exit());
+process.on('SIGTERM', () => process.exit());
+
+async function getOrStartContainer(
+  sessionId: string,
+): Promise<ActiveContainer> {
+  const existing = activeContainers.get(sessionId);
+  if (existing) {
+    existing.lastAccessed = Date.now();
+    return existing;
+  }
+
+  const sessionDir = join(tmpdir(), `miniclaw-session-${sessionId}`);
+  mkdirSync(sessionDir, { recursive: true });
+  const containerName = `miniclaw-${sessionId}`;
+
+  const workspacePath = resolve(config.workspaceDir);
+  const projectRootPath = findProjectRoot(__dirname);
+
+  // 清理可能存在的残留同名容器
+  try {
+    spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
+  } catch {}
+
+  const dockerArgs = [
+    'run',
+    '-d',
+    '--name',
+    containerName,
+    '--network=host',
+    `--memory=2g`,
+    `--cpus=2`,
+    `-v`,
+    `${workspacePath}:/workspace/files:rw`,
+    `-v`,
+    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`,
+    `-v`,
+    `${sessionDir}:/workspace/session_tmp:rw`,
+    CONTAINER_IMAGE,
+    'tail',
+    '-f',
+    '/dev/null',
+  ];
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('docker', dockerArgs);
+    let stderr = '';
+    child.stderr?.on('data', (d) => (stderr += d.toString()));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Failed to start container: ${stderr}`));
+      } else {
+        const activeContainer = {
+          sessionId,
+          containerName,
+          sessionDir,
+          lastAccessed: Date.now(),
+        };
+        activeContainers.set(sessionId, activeContainer);
+        console.log(
+          `[ContainerManager] 容器 ${containerName} 已启动，后台保活中...`,
+        );
+        resolve(activeContainer);
+      }
+    });
+    child.on('error', reject);
+  });
+}
+
 export async function runContainerAgent(
   payload: PromptPayload,
   onStream?: (chunk: string) => void,
@@ -62,13 +174,26 @@ export async function runContainerAgent(
   const sessionId = payload.session.id;
   const runId = randomBytes(8).toString('hex');
 
-  // 创建临时目录用于IPC
-  const tempDir = join(tmpdir(), `miniclaw-${sessionId}-${runId}`);
-  const inputDir = join(tempDir, 'input');
-  const outputDir = join(tempDir, 'output');
+  let activeContainer: ActiveContainer;
+  try {
+    activeContainer = await getOrStartContainer(sessionId);
+  } catch (err: any) {
+    return {
+      success: false,
+      content: '',
+      error: `Container startup failed: ${err.message}`,
+    };
+  }
+
+  // 创建本次运行的临时目录
+  const runDir = join(activeContainer.sessionDir, runId);
+  const inputDir = join(runDir, 'input');
+  const outputDir = join(runDir, 'output');
+  const containerWorkspace = join(runDir, 'workspace');
 
   mkdirSync(inputDir, { recursive: true });
   mkdirSync(outputDir, { recursive: true });
+  mkdirSync(containerWorkspace, { recursive: true });
 
   // 写入prompt到输入文件
   const inputFile = join(inputDir, 'payload.json');
@@ -77,41 +202,21 @@ export async function runContainerAgent(
   // 准备输出文件路径
   const outputFile = join(outputDir, 'result.json');
 
-  // 构建Docker参数
-  const workspacePath = resolve(config.workspaceDir);
-  // 动态查找项目根目录，而不是硬编码 '../..'
-  const projectRootPath = findProjectRoot(__dirname);
-  const containerWorkspace = join(tempDir, 'workspace');
-  mkdirSync(containerWorkspace, { recursive: true });
-
+  // 构建 docker exec 参数
   const dockerArgs = [
-    'run',
-    '--rm',
+    'exec',
     '-i',
-    '--network=host',
-    `--memory=2g`,
-    `--cpus=2`,
-    `-v`,
-    `${workspacePath}:/workspace/files:rw`,
-    `-v`,
-    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`, // 挂载项目根目录
-    `-v`,
-    `${inputDir}:/workspace/input:ro`,
-    `-v`,
-    `${outputDir}:/workspace/output:rw`,
-    `-v`,
-    `${containerWorkspace}:/workspace/tmp:rw`,
     '-e',
-    `INPUT_FILE=/workspace/input/payload.json`,
+    `INPUT_FILE=/workspace/session_tmp/${runId}/input/payload.json`,
     '-e',
-    `OUTPUT_FILE=/workspace/output/result.json`,
+    `OUTPUT_FILE=/workspace/session_tmp/${runId}/output/result.json`,
     '-e',
     `CONTEXT7_API_KEY=${config.context7ApiKey}`,
     '-e',
     `GITHUB_TOKEN=${config.githubToken}`,
     '-e',
-    `TMP_DIR=/workspace/tmp`,
-    CONTAINER_IMAGE,
+    `TMP_DIR=/workspace/session_tmp/${runId}/workspace`,
+    activeContainer.containerName,
     'node',
     '/app/dist/index.js',
   ];
@@ -249,7 +354,7 @@ export async function runContainerAgent(
       }
       // 清理临时目录
       try {
-        rmSync(tempDir, { recursive: true, force: true });
+        rmSync(runDir, { recursive: true, force: true });
       } catch {
         // 忽略清理错误
       }
@@ -259,7 +364,7 @@ export async function runContainerAgent(
       clearTimeout(timeoutId);
       // 清理临时目录
       try {
-        rmSync(tempDir, { recursive: true, force: true });
+        rmSync(runDir, { recursive: true, force: true });
       } catch {}
       reject(err);
     });

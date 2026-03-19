@@ -350,7 +350,6 @@ async function main(): Promise<void> {
     writeOutput(output);
   } catch (err: any) {
     log(`Agent error: ${err.message}`);
-    while (true) {}
     const result: ContainerResult = {
       success: false,
       content: '',
