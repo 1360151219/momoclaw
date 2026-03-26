@@ -71,7 +71,12 @@ async function downloadAndSaveImage(
   }
 
   // Container sees workspaceDir as /workspace/files
-  const containerPath = join('/workspace/files', 'temp', 'feishu-images', fileName);
+  const containerPath = join(
+    '/workspace/files',
+    'temp',
+    'feishu-images',
+    fileName,
+  );
 
   return { hostPath, containerPath };
 }
@@ -154,7 +159,7 @@ async function handleStreamingMessage(
       },
       onToolEvent: (event) => {
         if (event.type === 'thinking') {
-          console.log(`[streaming event ${event.type}]`, event.content);
+          // console.log(`[streaming event ${event.type}]`, event.content);
           thinkingText += event.content;
           // Stream thinking updates in real-time
           updater.updateThinking(thinkingText).catch(() => {});
@@ -162,12 +167,16 @@ async function handleStreamingMessage(
           const toolCall = event.toolCall;
           const toolInfo = `\n🔧 **Tool Use**: \`${toolCall.name}\`\n\`\`\`json\n${JSON.stringify(toolCall.arguments, null, 2)}\n\`\`\`\n`;
           thinkingText += toolInfo;
-          console.log(`[streaming event ${event.type}]`, toolCall.name);
+          // console.log(`[streaming event ${event.type}]`, toolCall.name);
           updater.updateThinking(thinkingText).catch(() => {});
         } else if (event.type === 'tool_result') {
           const resultInfo = `\n✅ **Tool Result** (ID: ${event.toolCallId}):\n\`\`\`\n${event.result.slice(0, 500)}${event.result.length > 500 ? '...' : ''}\n\`\`\`\n`;
           thinkingText += resultInfo;
-          console.log(`[streaming event ${event.type}]`, event.toolCallId);
+          // console.log(
+          //   `[streaming event ${event.type}]`,
+          //   event.toolCallId,
+          //   event.result,
+          // );
           updater.updateThinking(thinkingText).catch(() => {});
         }
       },

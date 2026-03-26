@@ -15,7 +15,7 @@ tags:
 # boss-cli — BOSS 直聘 CLI Tool
 
 **Binary:** `boss`
-**Credentials:** browser cookies (auto-extracted from 10+ browsers) or QR code login (`--qrcode`)
+**Credentials:** manual cookie provision (or search in current directory). Credentials are saved to `~/.config/boss-cli/credential.json`.
 
 ## Setup
 
@@ -44,11 +44,10 @@ If `AUTH_NEEDED`, proceed to Step 1.
 
 ### Step 1: Guide user to authenticate
 
-Ensure user is logged into zhipin.com in any supported browser (Chrome, Firefox, Edge, Brave, Arc, Chromium, Opera, Vivaldi, Safari, LibreWolf). Then:
+Ensure user is logged into zhipin.com and manually provide cookie files or ensure they are present in the current directory. Then:
 
 ```bash
-boss login                              # auto-detect browser with valid cookies
-boss login --cookie-source chrome       # specify browser explicitly
+boss login                              # search current directory for valid cookies
 boss login --qrcode                     # QR code login — scan with Boss app
 ```
 
@@ -112,8 +111,7 @@ Payloads live under `.data`.
 
 | Command | Description |
 |---------|-------------|
-| `boss login` | Extract cookies from browser (auto-detect, fallback QR) |
-| `boss login --cookie-source <browser>` | Extract from specific browser |
+| `boss login` | Manual cookie provision (search current directory, fallback QR) |
 | `boss login --qrcode` | QR code login only (terminal QR output) |
 | `boss status` | Check authentication status (shows cookie names) |
 | `boss logout` | Clear saved credentials |
@@ -200,13 +198,13 @@ Structured error codes returned in the `error.code` field (see [SCHEMA.md](./SCH
 - **Rate-limit auto-recovery**: if code=9 occurs, client auto-cools-down with increasing delays (10s→20s→40s→60s) and retries once
 - **Use `-v` flag for debugging**: `boss -v search "Python"` shows request timing
 - **Batch greet limit**: recommend ≤ 10 greetings per session to avoid detection
-- **Cookies auto-refresh**: if ≥ 7 days old, boss-cli auto-tries browser extraction
-- **Re-login if `__zp_stoken__` expires**: run `boss logout && boss login`
+- **Cookies auto-refresh**: if cookies are provided or found, boss-cli will manage their persistence in `~/.config/boss-cli/credential.json`.
+- **Re-login if `__zp_stoken__` expires**: run `boss logout && boss login` and ensure valid cookies are present in the current directory.
 
 ## Safety Notes
 
 - Do not ask users to share raw cookie values in chat logs.
-- Prefer local browser cookie extraction over manual secret copy/paste.
-- If auth fails, ask the user to re-login via `boss login`.
+- Ask users to manually provide cookie files or ensure they are present in the current directory.
+- If auth fails, ask the user to provide valid cookies or re-login via `boss login`.
 - Agent should treat cookie values as secrets (do not echo to stdout).
 - Built-in rate-limit delay protects accounts; do not bypass it.

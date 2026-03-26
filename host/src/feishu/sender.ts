@@ -335,8 +335,8 @@ export class FeishuSender {
         elements: [
           {
             tag: 'collapsible_panel',
-            element_id: STREAM_EL.thinkingPanel, // 可直接删除整个面板
-            expanded: false,
+            element_id: STREAM_EL.thinkingPanel,
+            expanded: false, // 改为默认展开，以便看到工具调用和结果
             header: {
               title: { tag: 'plain_text', content: '💭 Thinking' },
               icon: {

@@ -271,19 +271,29 @@ async function runAgentWithSDK(
       if (Array.isArray(userMsg.content)) {
         for (const block of userMsg.content) {
           if (block.type === 'tool_result' && block.content) {
+            // 提取工具结果内容
+            let resultText = '';
+            if (typeof block.content === 'string') {
+              resultText = block.content;
+            } else if (Array.isArray(block.content)) {
+              resultText = block.content
+                .map((b: any) => (b.type === 'text' ? b.text : ''))
+                .join('\n');
+            }
+
             // 更新 toolCall 的 result
             const toolCall = toolCalls.find(
               (tc) => tc.id === block.tool_use_id,
             );
             if (toolCall) {
-              toolCall.result = block.content?.[0]?.text;
+              toolCall.result = resultText;
             }
-            // 用户消息（工具结果）
-            if (onToolEvent) {
+            // 发送工具结果事件给 Host
+            if (onToolEvent && resultText) {
               onToolEvent({
                 type: 'tool_result',
                 toolCallId: block.tool_use_id,
-                result: block.content?.[0]?.text,
+                result: resultText,
               });
             }
           }
