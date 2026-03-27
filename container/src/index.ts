@@ -2,7 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import {
   PromptPayload,
   ContainerResult,
@@ -39,19 +39,9 @@ async function runAgentWithSDK(
 ): Promise<{
   content: string;
   toolCalls: ToolCall[];
+  compactedSummary?: string;
 }> {
-  const { session, messages, userInput, apiConfig, memory } = payload;
-
-  // 构建完整 prompt：历史消息 + 当前用户输入
-  let fullPrompt = `## User Context\n- Current Timestamp: ${new Date().getTime()}\n- Session ID: ${session.id}\n- History Messages: \n`;
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      fullPrompt += `User: ${msg.content}\n\n`;
-    } else if (msg.role === 'assistant') {
-      fullPrompt += `Assistant: ${msg.content}\n\n`;
-    }
-  }
-  fullPrompt += `- Current User Input: ${userInput}`;
+  const { session, userInput, apiConfig, memory } = payload;
 
   // 构建增强的系统提示词（包含记忆内容）
   let enhancedSystemPrompt = session.systemPrompt || '';
@@ -73,6 +63,7 @@ async function runAgentWithSDK(
   let finalContent = '';
   const toolCalls: ToolCall[] = [];
   let hasStartedStreaming = false;
+  let hasCompacted = false;
 
   // 确保 workspace 目录存在
   if (!fs.existsSync(WORKSPACE_DIR)) {
@@ -80,17 +71,18 @@ async function runAgentWithSDK(
   }
 
   if (process.env.DEBUG) {
-    const originContent = fs.readFileSync(
+    const originContent = fs.existsSync(
       path.join(WORKSPACE_DIR, 'debug-prompt.json'),
-      'utf-8',
-    );
+    )
+      ? fs.readFileSync(path.join(WORKSPACE_DIR, 'debug-prompt.json'), 'utf-8')
+      : '[]';
     const originData = JSON.parse(originContent || '[]');
     fs.writeFileSync(
       path.join(WORKSPACE_DIR, 'debug-prompt.json'),
       JSON.stringify([
         ...originData,
         {
-          userPrompt: fullPrompt,
+          userInput,
           systemPrompt: enhancedSystemPrompt,
         },
       ]),
@@ -99,9 +91,10 @@ async function runAgentWithSDK(
 
   // 使用 Claude Agent SDK
   for await (const message of query({
-    prompt: fullPrompt,
+    prompt: userInput,
     options: {
       cwd: WORKSPACE_DIR,
+      resume: session.id, // 尝试恢复之前的会话
       systemPrompt: enhancedSystemPrompt
         ? {
             type: 'preset',
@@ -154,6 +147,12 @@ async function runAgentWithSDK(
   })) {
     const msgType = message.type;
     logger(`Received message`, message);
+
+    if (message.type === 'system' && message.subtype === 'compact_boundary') {
+      logger('SDK Context compacted!', message);
+      hasCompacted = true;
+    }
+
     if (message.type === 'assistant' && 'message' in message) {
       const assistantMsg = message;
       // 提取文本内容并流式输出
@@ -228,9 +227,29 @@ async function runAgentWithSDK(
     }
   }
 
+  let compactedSummary: string | undefined;
+
+  if (hasCompacted) {
+    try {
+      const sdkMessages = await getSessionMessages(session.id);
+      // The compact boundary message typically has the summary or we look for the first message
+      // Note: According to Claude Agent SDK, compacted messages are often represented as a system message
+      const summaryMsg = sdkMessages.find(
+        (m: any) =>
+          m.type === 'system' && m.message && typeof m.message === 'string',
+      );
+      if (summaryMsg) {
+        compactedSummary = summaryMsg.message as string;
+      }
+    } catch (err) {
+      logger('Failed to get compacted messages', err);
+    }
+  }
+
   return {
     content: finalContent,
     toolCalls,
+    compactedSummary,
   };
 }
 
@@ -281,6 +300,7 @@ async function main(): Promise<void> {
       success: true,
       content: contentBuffer || result.content,
       toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+      compactedSummary: result.compactedSummary,
     };
 
     writeOutput(output);

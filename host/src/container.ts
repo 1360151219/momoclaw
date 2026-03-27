@@ -121,6 +121,9 @@ async function getOrStartContainer(
     spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
   } catch {}
 
+  const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
+  mkdirSync(claudeDir, { recursive: true });
+
   const dockerArgs = [
     'run',
     '-d',
@@ -135,6 +138,8 @@ async function getOrStartContainer(
     `${projectRootPath}:/workspace/files/projects/momoclaw:rw`,
     `-v`,
     `${sessionDir}:/workspace/session_tmp:rw`,
+    `-v`,
+    `${claudeDir}:/home/node/.claude:rw`,
     CONTAINER_IMAGE,
     'tail',
     '-f',

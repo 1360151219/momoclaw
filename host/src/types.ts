@@ -55,13 +55,12 @@ export interface CronAction {
     limit?: number;
   };
 }
-
 export interface ContainerResult {
   success: boolean;
   content: string;
   toolCalls?: ToolCall[];
   error?: string;
-  cronActions?: CronAction[];
+  compactedSummary?: string;
 }
 
 export interface FeishuConfig {

@@ -8,9 +8,10 @@ import {
   getSessionMessages,
   getSession,
   updateSession,
+  updateSessionConsolidation,
 } from '../db/index.js';
 import { runContainerAgent } from '../container.js';
-import { getContextWindow, compressContext } from '../hooks/index.js';
+// 移除不必要的 hook 导入
 import {
   PromptPayload,
   ToolEvent,
@@ -58,30 +59,10 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
   // Save user message
   addMessage(session.id, 'user', content);
 
-  // Get history (all messages, we use sliding window instead of deletion)
-  const allMessages = getSessionMessages(session.id, 100); // Reasonable limit for context window
-
-  // Use sliding window to get recent messages within token limit
-  const contextWindow = getContextWindow(session, allMessages);
-
-  // Trigger async context compression if threshold reached
-  if (contextWindow.shouldCompress) {
-    const compressionDeps = {
-      getMessages: getSessionMessages,
-      updateSession: updateSession,
-      getSession: getSession,
-      apiConfig,
-    };
-    // Fire and forget - don't block chat response
-    compressContext(compressionDeps, session.id).catch((err) => {
-      console.error('[Chat] Context compression failed:', err);
-    });
-  }
-
-  // Build payload with context window
+  // Update payload to only send the current user input and let the container use SDK's resume feature
   const payload: PromptPayload = {
     session,
-    messages: contextWindow.messages.slice(0, -1), // Exclude current message
+    messages: [], // 传空数组，因为容器端将使用 resume
     userInput: content,
     apiConfig: apiConfig,
     channelContext: input.channelContext,
@@ -106,7 +87,23 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
 
     if (result.success) {
       const finalContent = contentBuffer || result.content;
-      addMessage(session.id, 'assistant', finalContent, result.toolCalls);
+      const message = addMessage(
+        session.id,
+        'assistant',
+        finalContent,
+        result.toolCalls,
+      );
+
+      // 处理来自容器的压缩上下文摘要
+      if (result.compactedSummary) {
+        // 更新数据库的压缩游标和摘要，保留所有原始消息供查看
+        updateSessionConsolidation(
+          session.id,
+          result.compactedSummary,
+          message.id,
+        );
+      }
+
       return {
         content: finalContent,
         toolCalls: result.toolCalls,

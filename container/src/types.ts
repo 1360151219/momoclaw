@@ -61,6 +61,7 @@ export interface ContainerResult {
   content: string;
   toolCalls?: ToolCall[];
   error?: string;
+  compactedSummary?: string;
 }
 
 // Stream event types for real-time tool call display
