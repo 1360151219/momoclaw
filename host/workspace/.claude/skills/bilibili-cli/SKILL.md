@@ -52,7 +52,7 @@ bili status                    # Check if logged in (exit 0 = yes, 1 = no)
 bili login                     # QR code login (if not authenticated)
 ```
 
-Authentication requires users to manually provide cookies, or it will search for valid cookies in the current directory. Once provided or found, credentials are saved to `~/.bilibili-cli/credential.json`.
+Authentication will first search for valid cookies in the current directory. If not found, it requires users to manually provide them. Once found or provided, credentials are saved to `~/.bilibili-cli/credential.json`.
 
 ## Command Reference
 

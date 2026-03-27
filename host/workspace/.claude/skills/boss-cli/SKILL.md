@@ -15,7 +15,7 @@ tags:
 # boss-cli — BOSS 直聘 CLI Tool
 
 **Binary:** `boss`
-**Credentials:** manual cookie provision (or search in current directory). Credentials are saved to `~/.config/boss-cli/credential.json`.
+**Credentials:** search for valid cookies in the current directory, or manually provide them. Once found or provided, credentials are saved to `~/.config/boss-cli/credential.json`.
 
 ## Setup
 
@@ -44,7 +44,7 @@ If `AUTH_NEEDED`, proceed to Step 1.
 
 ### Step 1: Guide user to authenticate
 
-Ensure user is logged into zhipin.com and manually provide cookie files or ensure they are present in the current directory. Then:
+Ensure user is logged into zhipin.com and ensure cookie files are present in the current directory, or manually provide them. Then:
 
 ```bash
 boss login                              # search current directory for valid cookies

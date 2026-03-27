@@ -29,8 +29,9 @@ Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory reco
 │   ├── SOUL.md            # Your identity, principles, capabilities
 │   └── USER.md            # User preferences, context, history
 │   └── YYYY-MM-DD/        # Daily memory records
-├── temp/                 # Temporary files (accessible from container)
-└── projects/             # Git repos and code projects
+├── temp/                  # Temporary files 
+├── credentials/           # Credentials files
+└── projects/              # Git repos and code projects
     └── momoclaw/          # (Momoclaw) Your Own root directory
 ```
 > Create if not exists. Create subdirectories as needed.

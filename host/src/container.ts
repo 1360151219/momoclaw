@@ -216,6 +216,8 @@ export async function runContainerAgent(
     `GITHUB_TOKEN=${config.githubToken}`,
     '-e',
     `TMP_DIR=/workspace/session_tmp/${runId}/workspace`,
+    '-u',
+    'node',
     activeContainer.containerName,
     'node',
     '/app/dist/index.js',

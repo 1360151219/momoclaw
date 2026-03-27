@@ -2,13 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import {
-  query,
-  HookCallback,
-  PreCompactHookInput,
-  SyncHookJSONOutput,
-} from '@anthropic-ai/claude-agent-sdk';
-import { fileURLToPath } from 'url';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   PromptPayload,
   ContainerResult,
@@ -16,25 +10,11 @@ import {
   ToolEvent,
 } from './types.js';
 import { createArticleFetcherMcpServer, CRON_TOOLS } from './mcp/index.js';
-
-const INPUT_FILE = process.env.INPUT_FILE || '/workspace/input/payload.json';
-const OUTPUT_FILE = process.env.OUTPUT_FILE || '/workspace/output/result.json';
-const WORKSPACE_DIR = '/workspace/files';
+import { logger } from './debug.js';
+import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 
 // 创建 MCP 服务器
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
-
-interface SDKMessage {
-  type: 'user' | 'assistant' | 'result' | 'system';
-  message?: { role: string; content: any };
-  result?: string;
-  subtype?: string;
-  session_id?: string;
-}
-
-function log(message: string): void {
-  console.error(`[momoclaw-agent] ${message}`);
-}
 
 async function readInput(): Promise<PromptPayload> {
   if (!fs.existsSync(INPUT_FILE)) {
@@ -50,37 +30,6 @@ function writeOutput(output: ContainerResult): void {
     fs.mkdirSync(outputDir, { recursive: true });
   }
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2));
-}
-
-/**
- * Create Summary Injector Hook for PreCompact event
- *
- * This hook is called by the SDK when it needs to compress context.
- * We return a system message containing the conversation summary
- * that was prepared by the Host layer.
- */
-function createSummaryInjectorHook(summary?: string): HookCallback {
-  return async (input, _toolUseID, _options) => {
-    // Type guard for PreCompact hook
-    if (input.hook_event_name !== 'PreCompact') {
-      return {};
-    }
-
-    const preCompactInput = input as PreCompactHookInput;
-    log(
-      `PreCompact hook triggered (${preCompactInput.trigger}) for session ${input.session_id}`,
-    );
-
-    // If we have a summary from the Host, inject it as a system message
-    if (summary) {
-      return {
-        systemMessage: `## Previous Conversation Context\n\n${summary}\n\n---\n\nRecent messages follow.`,
-      };
-    }
-
-    // No summary available, let SDK handle compression normally
-    return {};
-  };
 }
 
 async function runAgentWithSDK(
@@ -130,9 +79,6 @@ async function runAgentWithSDK(
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
   }
 
-  // Create PreCompact hook with summary from Host
-  const preCompactHook = createSummaryInjectorHook(memory?.recentContent);
-
   if (process.env.DEBUG) {
     const originContent = fs.readFileSync(
       path.join(WORKSPACE_DIR, 'debug-prompt.json'),
@@ -164,26 +110,11 @@ async function runAgentWithSDK(
           }
         : { type: 'preset', preset: 'claude_code' },
       settingSources: ['project', 'user'],
-      allowedTools: [
-        'Read',
-        'Write',
-        'Edit',
-        'Glob',
-        'Grep',
-        'Bash',
-        'WebSearch',
-        'WebFetch',
-        'Skill',
-        'TodoWrite',
-      ],
       env: sdkEnv,
-      permissionMode: 'acceptEdits',
-      allowDangerouslySkipPermissions: false, // 跟 root 权限冲突
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true, // Bypass all permissions
       model: apiConfig.model,
       stderr: (data) => process.stderr.write(data),
-      hooks: {
-        PreCompact: [{ hooks: [preCompactHook] }],
-      },
       mcpServers: {
         momoclaw_mcp: articleFetcherMcpServer,
         context7: {
@@ -222,12 +153,7 @@ async function runAgentWithSDK(
     },
   })) {
     const msgType = message.type;
-    log(`Received message: type=${msgType},${JSON.stringify(message)}`);
-
-    // if (onStream) {
-    //   onStream('=====debug=====' + JSON.stringify(message) + '\n');
-    // }
-
+    logger(`Received message`, message);
     if (message.type === 'assistant' && 'message' in message) {
       const assistantMsg = message;
       // 提取文本内容并流式输出
@@ -318,7 +244,7 @@ async function main(): Promise<void> {
   let payload: PromptPayload;
   try {
     payload = await readInput();
-    log(`Received payload for session: ${payload.session.id}`);
+    logger(`session start，payload received: `, payload);
   } catch (err: any) {
     const result: ContainerResult = {
       success: false,
@@ -359,7 +285,6 @@ async function main(): Promise<void> {
 
     writeOutput(output);
   } catch (err: any) {
-    log(`Agent error: ${err.message}`);
     const result: ContainerResult = {
       success: false,
       content: '',
