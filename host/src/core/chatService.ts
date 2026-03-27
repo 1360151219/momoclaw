@@ -3,15 +3,8 @@
  * Following Single Responsibility Principle
  */
 
-import {
-  addMessage,
-  getSessionMessages,
-  getSession,
-  updateSession,
-  updateSessionConsolidation,
-} from '../db/index.js';
+import { addMessage, updateSessionConsolidation } from '../db/index.js';
 import { runContainerAgent } from '../container.js';
-// 移除不必要的 hook 导入
 import {
   PromptPayload,
   ToolEvent,
