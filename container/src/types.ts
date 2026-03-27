@@ -1,5 +1,6 @@
 export interface Session {
   id: string;
+  claudeSessionId?: string;
   name: string;
   systemPrompt: string;
   model: string;
@@ -62,6 +63,7 @@ export interface ContainerResult {
   toolCalls?: ToolCall[];
   error?: string;
   compactedSummary?: string;
+  claudeSessionId?: string;
 }
 
 // Stream event types for real-time tool call display

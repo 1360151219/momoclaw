@@ -2,7 +2,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import { query, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  getSessionMessages,
+  Options,
+} from '@anthropic-ai/claude-agent-sdk';
 import {
   PromptPayload,
   ContainerResult,
@@ -40,16 +44,12 @@ async function runAgentWithSDK(
   content: string;
   toolCalls: ToolCall[];
   compactedSummary?: string;
+  claudeSessionId?: string;
 }> {
   const { session, userInput, apiConfig, memory } = payload;
 
-  // 构建增强的系统提示词（包含记忆内容）
+  // 构建增强的系统提示词
   let enhancedSystemPrompt = session.systemPrompt || '';
-
-  // Add memory context if available (includes summary from Host)
-  if (memory?.recentContent) {
-    enhancedSystemPrompt += `\n\n## Previous Conversation Summary\n\n${memory.recentContent}\n`;
-  }
 
   // 设置环境变量供 SDK 使用
   const sdkEnv: Record<string, string | undefined> = {
@@ -89,70 +89,64 @@ async function runAgentWithSDK(
     );
   }
 
-  // 使用 Claude Agent SDK
-  for await (const message of query({
-    prompt: userInput,
-    options: {
-      cwd: WORKSPACE_DIR,
-      resume: session.id, // 尝试恢复之前的会话
-      systemPrompt: enhancedSystemPrompt
-        ? {
-            type: 'preset',
-            preset: 'claude_code',
-            append: enhancedSystemPrompt,
-          }
-        : { type: 'preset', preset: 'claude_code' },
-      settingSources: ['project', 'user'],
-      env: sdkEnv,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true, // Bypass all permissions
-      model: apiConfig.model,
-      stderr: (data) => process.stderr.write(data),
-      mcpServers: {
-        momoclaw_mcp: articleFetcherMcpServer,
-        context7: {
-          type: 'http',
-          url: 'https://mcp.context7.com/mcp',
-          headers: {
-            CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
-          },
+  const queryOptions: Options = {
+    cwd: WORKSPACE_DIR,
+    ...(session.claudeSessionId ? { resume: session.claudeSessionId } : {}),
+    systemPrompt: enhancedSystemPrompt
+      ? {
+          type: 'preset',
+          preset: 'claude_code',
+          append: enhancedSystemPrompt,
+        }
+      : { type: 'preset', preset: 'claude_code' },
+    settingSources: ['project', 'user'],
+    env: sdkEnv,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true, // Bypass all permissions
+    model: apiConfig.model,
+    stderr: (data: any) => process.stderr.write(data),
+    mcpServers: {
+      momoclaw_mcp: articleFetcherMcpServer,
+      context7: {
+        type: 'http',
+        url: 'https://mcp.context7.com/mcp',
+        headers: {
+          CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
         },
-        /**
-         * ## 可用工具
-          | 工具名 | 作用 | 示例 |
-          |--------|------|------|
-          | `get_user_info` | 获取 UP 主信息 | 粉丝数、关注数、投稿数、签名等 |
-          | `get_video_info` | 获取视频详情 | 标题、UP主、播放量、点赞、投币、简介、时长等 |
-          | `search_videos` | 搜索视频 | 按关键词搜索，支持分页 |
-         */
-        bilibili: {
-          command: 'node',
-          args: ['/app/node_modules/.bin/bilibili-mcp-server'],
-        },
-        /**
-         * ## GitHub MCP Server
-         * 可用工具: search_repositories, get_repository, list_commits, get_file_contents,
-         *          create_or_update_file, create_repository, search_code, list_issues,
-         *          create_issue, add_issue_comment
-         */
-        github: {
-          command: 'node',
-          args: ['/app/node_modules/.bin/mcp-server-github'],
-          env: {
-            GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
-          },
+      },
+      bilibili: {
+        command: 'node',
+        args: ['/app/node_modules/.bin/bilibili-mcp-server'],
+      },
+      github: {
+        command: 'node',
+        args: ['/app/node_modules/.bin/mcp-server-github'],
+        env: {
+          GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
         },
       },
     },
-  })) {
-    const msgType = message.type;
-    logger(`Received message`, message);
+  };
 
+  let claudeSessionId = session.claudeSessionId;
+
+  // 使用 Claude Agent SDK
+  for await (const message of query({
+    prompt: userInput,
+    options: queryOptions,
+  })) {
+    logger(`Received message`, message);
+    // ============== record step ==============
+    // record session id
+    if (message.type === 'system' && message.subtype === 'init') {
+      claudeSessionId = (message as any).session_id;
+    }
+    // record compacted summary
     if (message.type === 'system' && message.subtype === 'compact_boundary') {
       logger('SDK Context compacted!', message);
       hasCompacted = true;
     }
-
+    // ==============
     if (message.type === 'assistant' && 'message' in message) {
       const assistantMsg = message;
       // 提取文本内容并流式输出
@@ -229,9 +223,9 @@ async function runAgentWithSDK(
 
   let compactedSummary: string | undefined;
 
-  if (hasCompacted) {
+  if (hasCompacted && claudeSessionId) {
     try {
-      const sdkMessages = await getSessionMessages(session.id);
+      const sdkMessages = await getSessionMessages(claudeSessionId);
       // The compact boundary message typically has the summary or we look for the first message
       // Note: According to Claude Agent SDK, compacted messages are often represented as a system message
       const summaryMsg = sdkMessages.find(
@@ -250,6 +244,7 @@ async function runAgentWithSDK(
     content: finalContent,
     toolCalls,
     compactedSummary,
+    claudeSessionId,
   };
 }
 
@@ -301,6 +296,7 @@ async function main(): Promise<void> {
       content: contentBuffer || result.content,
       toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
       compactedSummary: result.compactedSummary,
+      claudeSessionId: result.claudeSessionId,
     };
 
     writeOutput(output);

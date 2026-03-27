@@ -320,6 +320,7 @@ describe('CronService 集成测试', () => {
     vi.mocked(db.getDueTasks).mockReturnValue([mockTask]);
     vi.mocked(db.getSession).mockReturnValue({
       id: 'session-test',
+      claudeSessionId: 'uuid-test',
       name: 'Test Session',
       systemPrompt: 'Test system prompt',
       model: 'anthropic/claude-3-5-sonnet-20241022',

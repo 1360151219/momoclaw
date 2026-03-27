@@ -111,8 +111,8 @@ export function createScheduledTask(
     if (!existingSession) {
         // Auto-create session
         db.prepare(`
-            INSERT INTO sessions (id, name, system_prompt, model, created_at, updated_at, is_active)
-            VALUES (?, ?, ?, NULL, ?, ?, 0)
+            INSERT INTO sessions (id, claude_session_id, name, system_prompt, model, created_at, updated_at, is_active)
+            VALUES (?, NULL, ?, ?, NULL, ?, ?, 0)
         `).run(sessionId, `Session-${sessionId.slice(-8)}`, '', now, now);
     }
 

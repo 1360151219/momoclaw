@@ -3,7 +3,7 @@
  * Following Single Responsibility Principle
  */
 
-import { addMessage, updateSessionConsolidation } from '../db/index.js';
+import { addMessage, updateSessionSummary, updateSession } from '../db/index.js';
 import { runContainerAgent } from '../container.js';
 import {
   PromptPayload,
@@ -61,7 +61,7 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
     channelContext: input.channelContext,
     memory: {
       todayPath: '',
-      recentContent: session.summary || '',
+      recentContent: '', // 总结已经由 SDK 内部管理，不再需要重复传入
     },
   };
 
@@ -90,11 +90,15 @@ export async function processChat(input: ChatInput): Promise<ChatOutput> {
       // 处理来自容器的压缩上下文摘要
       if (result.compactedSummary) {
         // 更新数据库的压缩游标和摘要，保留所有原始消息供查看
-        updateSessionConsolidation(
+        updateSessionSummary(
           session.id,
-          result.compactedSummary,
-          message.id,
+          result.compactedSummary
         );
+      }
+
+      // 记录由 SDK 分配的 session id
+      if (result.claudeSessionId) {
+        updateSession(session.id, { claudeSessionId: result.claudeSessionId });
       }
 
       return {
