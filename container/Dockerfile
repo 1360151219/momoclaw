@@ -34,7 +34,7 @@ WORKDIR /app
 
 # 复制配置文件和依赖
 COPY package*.json tsconfig.json ./
-RUN npm ci
+RUN npm ci --include=dev --registry=https://registry.npmmirror.com
 
 # 复制应用代码
 COPY --chown=node:node src/ ./src/
