@@ -1,5 +1,6 @@
 export interface Session {
   id: string;
+  claudeSessionId?: string;
   name: string;
   systemPrompt: string;
   model: string;
@@ -7,7 +8,6 @@ export interface Session {
   updatedAt: number;
   isActive: boolean;
   summary?: string;
-  lastConsolidatedIndex?: number; // Index of last message consolidated into summary (nanobot-style)
 }
 
 export interface Message {
@@ -55,13 +55,13 @@ export interface CronAction {
     limit?: number;
   };
 }
-
 export interface ContainerResult {
   success: boolean;
   content: string;
   toolCalls?: ToolCall[];
   error?: string;
-  cronActions?: CronAction[];
+  compactedSummary?: string;
+  claudeSessionId?: string;
 }
 
 export interface FeishuConfig {

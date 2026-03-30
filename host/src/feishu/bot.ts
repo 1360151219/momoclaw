@@ -16,6 +16,7 @@ import { getOrCreateSession } from './commands.js';
 import type { CommandContext } from './commands.js';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
+import { useThrottleFn } from '../hooks/throttle.js';
 
 interface FeishuChatOptions {
   feishuConfig: FeishuConfig;
@@ -71,7 +72,12 @@ async function downloadAndSaveImage(
   }
 
   // Container sees workspaceDir as /workspace/files
-  const containerPath = join('/workspace/files', 'temp', 'feishu-images', fileName);
+  const containerPath = join(
+    '/workspace/files',
+    'temp',
+    'feishu-images',
+    fileName,
+  );
 
   return { hostPath, containerPath };
 }
@@ -136,6 +142,14 @@ async function handleStreamingMessage(
   let responseText = '';
   let thinkingText = '';
 
+  const throttledUpdateContent = useThrottleFn((text: string) => {
+    updater.updateContent(text).catch(() => {});
+  });
+
+  const throttledUpdateThinking = useThrottleFn((text: string) => {
+    updater.updateThinking(text).catch(() => {});
+  });
+
   const feishuConfig = config.feishu;
   const processedContent = feishuConfig
     ? await processImagesForMessage(message, feishuConfig)
@@ -147,28 +161,23 @@ async function handleStreamingMessage(
       session,
       channelContext,
       onChunk: (chunk) => {
-        console.log('[streaming chunk]', chunk);
+        // process.stdout.write(chunk);
         responseText += chunk;
-        // Stream content updates in real-time
-        updater.updateContent(responseText).catch(() => {});
+        throttledUpdateContent(responseText);
       },
       onToolEvent: (event) => {
         if (event.type === 'thinking') {
-          console.log(`[streaming event ${event.type}]`, event.content);
           thinkingText += event.content;
-          // Stream thinking updates in real-time
-          updater.updateThinking(thinkingText).catch(() => {});
+          throttledUpdateThinking(thinkingText);
         } else if (event.type === 'tool_use') {
           const toolCall = event.toolCall;
           const toolInfo = `\n🔧 **Tool Use**: \`${toolCall.name}\`\n\`\`\`json\n${JSON.stringify(toolCall.arguments, null, 2)}\n\`\`\`\n`;
           thinkingText += toolInfo;
-          console.log(`[streaming event ${event.type}]`, toolCall.name);
-          updater.updateThinking(thinkingText).catch(() => {});
+          throttledUpdateThinking(thinkingText);
         } else if (event.type === 'tool_result') {
           const resultInfo = `\n✅ **Tool Result** (ID: ${event.toolCallId}):\n\`\`\`\n${event.result.slice(0, 500)}${event.result.length > 500 ? '...' : ''}\n\`\`\`\n`;
           thinkingText += resultInfo;
-          console.log(`[streaming event ${event.type}]`, event.toolCallId);
-          updater.updateThinking(thinkingText).catch(() => {});
+          throttledUpdateThinking(thinkingText);
         }
       },
     });

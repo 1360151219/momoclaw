@@ -102,14 +102,14 @@ export class ArticleFetcher {
    */
   private deleteFromCache(url: string): void {
     this.cache.delete(url);
-    this.accessOrder = this.accessOrder.filter(u => u !== url);
+    this.accessOrder = this.accessOrder.filter((u) => u !== url);
   }
 
   /**
    * 更新访问顺序（LRU）
    */
   private updateAccessOrder(url: string): void {
-    this.accessOrder = this.accessOrder.filter(u => u !== url);
+    this.accessOrder = this.accessOrder.filter((u) => u !== url);
     this.accessOrder.push(url);
   }
 
@@ -136,7 +136,12 @@ export class ArticleFetcher {
   /**
    * 获取缓存统计信息
    */
-  getCacheStats(): { size: number; maxSize: number; ttl: number; keys: string[] } {
+  getCacheStats(): {
+    size: number;
+    maxSize: number;
+    ttl: number;
+    keys: string[];
+  } {
     return {
       size: this.cache.size,
       maxSize: MAX_CACHE_SIZE,
@@ -154,7 +159,11 @@ export class ArticleFetcher {
       const hostname = parsed.hostname.toLowerCase();
 
       // 检查 localhost
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1'
+      ) {
         return { safe: false, reason: 'Localhost access is not allowed' };
       }
 
@@ -168,23 +177,38 @@ export class ArticleFetcher {
         }
         // 10.0.0.0/8
         if (parts[0] === 10) {
-          return { safe: false, reason: 'Private network (10.x.x.x) is not allowed' };
+          return {
+            safe: false,
+            reason: 'Private network (10.x.x.x) is not allowed',
+          };
         }
         // 172.16.0.0/12
         if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) {
-          return { safe: false, reason: 'Private network (172.16-31.x.x) is not allowed' };
+          return {
+            safe: false,
+            reason: 'Private network (172.16-31.x.x) is not allowed',
+          };
         }
         // 192.168.0.0/16
         if (parts[0] === 192 && parts[1] === 168) {
-          return { safe: false, reason: 'Private network (192.168.x.x) is not allowed' };
+          return {
+            safe: false,
+            reason: 'Private network (192.168.x.x) is not allowed',
+          };
         }
         // 169.254.0.0/16 (Link-local)
         if (parts[0] === 169 && parts[1] === 254) {
-          return { safe: false, reason: 'Link-local address (169.254.x.x) is not allowed' };
+          return {
+            safe: false,
+            reason: 'Link-local address (169.254.x.x) is not allowed',
+          };
         }
         // 0.0.0.0/8
         if (parts[0] === 0) {
-          return { safe: false, reason: 'Current network (0.x.x.x) is not allowed' };
+          return {
+            safe: false,
+            reason: 'Current network (0.x.x.x) is not allowed',
+          };
         }
       }
 
@@ -197,7 +221,9 @@ export class ArticleFetcher {
         'alibaba.dns', // Alibaba Cloud
         'metadata.tencentyun.com', // Tencent Cloud
       ];
-      if (blockedHosts.some(h => hostname === h || hostname.endsWith('.' + h))) {
+      if (
+        blockedHosts.some((h) => hostname === h || hostname.endsWith('.' + h))
+      ) {
         return { safe: false, reason: 'Cloud metadata service is not allowed' };
       }
 
@@ -214,8 +240,11 @@ export class ArticleFetcher {
         /^.*\.svc$/,
         /^.*\.cluster\.local$/,
       ];
-      if (internalPatterns.some(p => p.test(hostname))) {
-        return { safe: false, reason: 'Internal domain pattern is not allowed' };
+      if (internalPatterns.some((p) => p.test(hostname))) {
+        return {
+          safe: false,
+          reason: 'Internal domain pattern is not allowed',
+        };
       }
 
       return { safe: true };
@@ -258,7 +287,10 @@ export class ArticleFetcher {
   /**
    * 发送 HTTP 请求获取页面内容（带 SSRF 防护、大小限制和缓存）
    */
-  async fetchPageSafe(url: string, options?: FetchOptions): Promise<FetchResult> {
+  async fetchPageSafe(
+    url: string,
+    options?: FetchOptions,
+  ): Promise<FetchResult> {
     // SSRF 检查
     const safety = this.isSafeUrl(url);
     if (!safety.safe) {
@@ -287,7 +319,8 @@ export class ArticleFetcher {
     const platformHeaders: Record<string, Record<string, string>> = {
       zhihu: {
         Referer: 'https://www.zhihu.com/',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua':
+          '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
         'Sec-Fetch-Dest': 'document',
@@ -327,13 +360,17 @@ export class ArticleFetcher {
     // 检查 Content-Length
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > this.maxBodySize) {
-      throw new Error(`Response body too large: ${contentLength} bytes (max: ${this.maxBodySize})`);
+      throw new Error(
+        `Response body too large: ${contentLength} bytes (max: ${this.maxBodySize})`,
+      );
     }
 
     // 读取响应体并检查大小
     const buffer = await response.arrayBuffer();
     if (buffer.byteLength > this.maxBodySize) {
-      throw new Error(`Response body too large: ${buffer.byteLength} bytes (max: ${this.maxBodySize})`);
+      throw new Error(
+        `Response body too large: ${buffer.byteLength} bytes (max: ${this.maxBodySize})`,
+      );
     }
 
     const text = new TextDecoder('utf-8').decode(buffer);
@@ -362,14 +399,6 @@ export class ArticleFetcher {
       hasMore,
       nextOffset,
     };
-  }
-
-  /**
-   * 发送 HTTP 请求获取页面内容（向后兼容）
-   */
-  private async fetchPage(url: string): Promise<string> {
-    const result = await this.fetchPageSafe(url);
-    return result.content;
   }
 
   /**
@@ -460,13 +489,13 @@ export class ArticleFetcher {
   private extractContentWithFallback(
     html: string,
     platform: string,
-    customSelector?: string
+    customSelector?: string,
   ): { content: string; method: string } {
     // 层级 1: 平台特定选择器
     if (customSelector) {
       const regex = new RegExp(
         `<${customSelector}[^>]*>([\\s\\S]*?)<\\/${customSelector}>`,
-        'i'
+        'i',
       );
       const match = html.match(regex);
       if (match) {
@@ -538,7 +567,7 @@ export class ArticleFetcher {
    */
   async fetchZhihuArticle(
     url: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<Article & { hasMore?: boolean; nextOffset?: number }> {
     // 获取完整内容用于提取元数据
     const fullResult = await this.fetchPageSafe(url);
@@ -550,13 +579,13 @@ export class ArticleFetcher {
     // 提取作者
     let author = '';
     const authorMatch = fullHtml.match(
-      /<meta[^>]*name=["']author["'][^>]*content=["']([^"]+)["']/i
+      /<meta[^>]*name=["']author["'][^>]*content=["']([^"]+)["']/i,
     );
     if (authorMatch) {
       author = this.cleanText(authorMatch[1]);
     } else {
       const authorMatch2 = fullHtml.match(
-        /<a[^>]*class=["'][^"']*author[^"']*["'][^>]*>([^<]+)<\/a>/i
+        /<a[^>]*class=["'][^"']*author[^"']*["'][^>]*>([^<]+)<\/a>/i,
       );
       if (authorMatch2) {
         author = this.cleanText(authorMatch2[1]);
@@ -566,7 +595,7 @@ export class ArticleFetcher {
     // 提取发布时间
     let publishTime = '';
     const timeMatch = fullHtml.match(
-      /<meta[^>]*itemprop=["']datePublished["'][^>]*content=["']([^"]+)["']/i
+      /<meta[^>]*itemprop=["']datePublished["'][^>]*content=["']([^"]+)["']/i,
     );
     if (timeMatch) {
       publishTime = timeMatch[1];
@@ -575,14 +604,14 @@ export class ArticleFetcher {
     // 提取正文 - 使用多层级提取器
     let fullContent = '';
     const contentMatch = fullHtml.match(
-      /<div[^>]*class=["'][^"']*RichText[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/i
+      /<div[^>]*class=["'][^"']*RichText[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/i,
     );
     if (contentMatch) {
       fullContent = this.stripTags(contentMatch[1]);
     } else {
       // 备选方案
       const articleMatch = fullHtml.match(
-        /<article[^>]*>([\s\S]*?)<\/article>/i
+        /<article[^>]*>([\s\S]*?)<\/article>/i,
       );
       if (articleMatch) {
         fullContent = this.stripTags(articleMatch[1]);
@@ -615,7 +644,7 @@ export class ArticleFetcher {
    */
   async fetchWechatArticle(
     url: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<Article & { hasMore?: boolean; nextOffset?: number }> {
     // 获取完整内容用于提取元数据
     const fullResult = await this.fetchPageSafe(url);
@@ -627,13 +656,13 @@ export class ArticleFetcher {
     // 提取公众号名称
     let author = '';
     const authorMatch = fullHtml.match(
-      /<a[^>]*id=["']js_name["'][^>]*>([^<]+)<\/a>/i
+      /<a[^>]*id=["']js_name["'][^>]*>([^<]+)<\/a>/i,
     );
     if (authorMatch) {
       author = this.cleanText(authorMatch[1]);
     } else {
       const authorMatch2 = fullHtml.match(
-        /<span[^>]*class=["'][^"']*profile_nickname["'][^>]*>([^<]+)<\/span>/i
+        /<span[^>]*class=["'][^"']*profile_nickname["'][^>]*>([^<]+)<\/span>/i,
       );
       if (authorMatch2) {
         author = this.cleanText(authorMatch2[1]);
@@ -643,7 +672,7 @@ export class ArticleFetcher {
     // 提取发布时间
     let publishTime = '';
     const timeMatch = fullHtml.match(
-      /<em[^>]*id=["']publish_time["'][^>]*>([^<]+)<\/em>/i
+      /<em[^>]*id=["']publish_time["'][^>]*>([^<]+)<\/em>/i,
     );
     if (timeMatch) {
       publishTime = this.cleanText(timeMatch[1]);
@@ -652,7 +681,7 @@ export class ArticleFetcher {
     // 提取正文
     let fullContent = '';
     const contentMatch = fullHtml.match(
-      /<div[^>]*id=["']js_content["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>/i
+      /<div[^>]*id=["']js_content["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
     );
     if (contentMatch) {
       fullContent = this.stripTags(contentMatch[1]);
@@ -685,7 +714,7 @@ export class ArticleFetcher {
   async fetchGenericArticle(
     url: string,
     selector?: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<Article & { hasMore?: boolean; nextOffset?: number }> {
     const platform = this.detectPlatform(url);
 
@@ -703,7 +732,11 @@ export class ArticleFetcher {
     const title = this.extractTitle(html);
 
     // 使用多层级提取器
-    const { content } = this.extractContentWithFallback(html, platform, selector);
+    const { content } = this.extractContentWithFallback(
+      html,
+      platform,
+      selector,
+    );
 
     return {
       title,
@@ -713,17 +746,6 @@ export class ArticleFetcher {
       hasMore: fetchResult.hasMore,
       nextOffset: fetchResult.nextOffset,
     };
-  }
-
-  /**
-   * 根据平台使用特定选择器（已弃用，使用 extractContentWithFallback）
-   * @deprecated 使用 tryPlatformSpecific 替代
-   */
-  private async extractByPlatform(
-    html: string,
-    platform: string
-  ): Promise<string> {
-    return this.tryPlatformSpecific(html, platform) || '';
   }
 
   /**
@@ -739,8 +761,7 @@ export class ArticleFetcher {
       .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
 
     // 提取所有 div 和 article 标签
-    const divRegex =
-      /<(div|article|section)[^>]*>([\s\S]*?)<\/\1>/gi;
+    const divRegex = /<(div|article|section)[^>]*>([\s\S]*?)<\/\1>/gi;
     let bestContent = '';
     let bestScore = 0;
 
@@ -790,9 +811,10 @@ export class ArticleFetcher {
   async summarizeArticle(
     url: string,
     platform: string = 'auto',
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<ArticleSummary & { hasMore?: boolean; nextOffset?: number }> {
-    const detectedPlatform = platform === 'auto' ? this.detectPlatform(url) : platform;
+    const detectedPlatform =
+      platform === 'auto' ? this.detectPlatform(url) : platform;
 
     let article: Article & { hasMore?: boolean; nextOffset?: number };
     switch (detectedPlatform) {
@@ -865,7 +887,9 @@ export class ArticleFetcher {
     }
 
     // 查找加粗或重点内容
-    const important = content.match(/(?:重要的是|关键在于|总结一下|结论)[：:]?([^。]+。?)/g);
+    const important = content.match(
+      /(?:重要的是|关键在于|总结一下|结论)[：:]?([^。]+。?)/g,
+    );
     if (important) {
       points.push(...important.slice(0, 3));
     }

@@ -207,6 +207,16 @@ export class FeishuGateway {
         const startTime = Date.now();
         const response = await options.onMessage(message);
         response.elapsedMs = Date.now() - startTime;
+        
+        // Process markdown for images and files before sending card
+        if (response.text) {
+          response.text = await this.sender.processMarkdownResources(
+            response.text,
+            message.chatId,
+            { replyToMessageId: message.id }
+          );
+        }
+        
         await this.sender.sendCard(message.chatId, response, {
           replyToMessageId: message.id,
         });
@@ -322,11 +332,20 @@ export class FeishuGateway {
       },
 
       finalize: async (response: FeishuResponse) => {
-        mainText = response.text || mainText;
+        let finalText = response.text || mainText;
+        
+        // Process markdown for images and files before finalizing
+        if (finalText) {
+          finalText = await this.sender.processMarkdownResources(
+            finalText,
+            message.chatId,
+            { replyToMessageId: message.id }
+          );
+        }
 
         const mainSeq = sequence++;
         await enqueueUpdate(() =>
-          this.sender.updateCard(cardId, STREAM_EL.mainMd, mainText, mainSeq),
+          this.sender.updateCard(cardId, STREAM_EL.mainMd, finalText, mainSeq),
         );
 
         // Update thinking with final content if we have it

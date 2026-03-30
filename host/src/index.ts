@@ -9,9 +9,11 @@ import { startInteractiveChat } from './cli/index.js';
 import { startFeishuBot } from './feishu/bot.js';
 import { channelRegistry } from './cron/sender.js';
 import { FeishuCronHandler } from './feishu/cronHandler.js';
+import { startHostMcpServer } from './mcp/server.js';
 
 // Global instances
 let cronService: CronService;
+export const hostMcpPort: number = 51506;
 
 /**
  * Initialize core services
@@ -29,6 +31,9 @@ async function initialize(): Promise<void> {
   initDatabase(config.dbPath);
   cronService = new CronService();
   cronService.start();
+
+  // 启动宿主机 MCP Server
+  await startHostMcpServer(hostMcpPort);
 }
 
 /**

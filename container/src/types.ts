@@ -1,5 +1,6 @@
 export interface Session {
   id: string;
+  claudeSessionId?: string;
   name: string;
   systemPrompt: string;
   model: string;
@@ -24,12 +25,20 @@ export interface ToolCall {
   result?: string;
 }
 
+// Channel types for cross-channel notifications
+export type ChannelType = 'feishu' | 'terminal';
+
+export interface ChannelContext {
+  type: ChannelType;
+  channelId: string; // feishu: chat_id, terminal: session_id, web: ws_connection_id
+}
 export interface PromptPayload {
   session: Session;
   messages: Message[];
   userInput: string;
   apiConfig: ApiConfig;
   memory?: MemoryContext;
+  channelContext?: ChannelContext; // Source channel for result routing
 }
 
 export interface MemoryContext {
@@ -61,6 +70,8 @@ export interface ContainerResult {
   content: string;
   toolCalls?: ToolCall[];
   error?: string;
+  compactedSummary?: string;
+  claudeSessionId?: string;
 }
 
 // Stream event types for real-time tool call display

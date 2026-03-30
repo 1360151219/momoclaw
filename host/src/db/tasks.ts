@@ -67,8 +67,7 @@ export function initTaskRunLogsTable(db: any): void {
             executed_at INTEGER NOT NULL,
             success INTEGER NOT NULL DEFAULT 0,
             output TEXT NOT NULL DEFAULT '',
-            error TEXT,
-            FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+            error TEXT
         )
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_logs ON task_run_logs(task_id, executed_at)`);
@@ -111,8 +110,8 @@ export function createScheduledTask(
     if (!existingSession) {
         // Auto-create session
         db.prepare(`
-            INSERT INTO sessions (id, name, system_prompt, model, created_at, updated_at, is_active)
-            VALUES (?, ?, ?, NULL, ?, ?, 0)
+            INSERT INTO sessions (id, claude_session_id, name, system_prompt, model, created_at, updated_at, is_active)
+            VALUES (?, NULL, ?, ?, NULL, ?, ?, 0)
         `).run(sessionId, `Session-${sessionId.slice(-8)}`, '', now, now);
     }
 

@@ -4,9 +4,12 @@
  */
 
 import type { Client } from '@larksuiteoapi/node-sdk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { logger } from './logger.js';
 import type { FeishuResponse, FeishuConfig } from './types.js';
 import { getHttpClient, toCredentials, type BotCredentials } from './client.js';
+import { config } from '../config.js';
 
 const log = logger('feishu:sender');
 
@@ -34,6 +37,190 @@ export class FeishuSender {
 
   constructor(private config: FeishuConfig) {
     this.client = getHttpClient(toCredentials(config));
+  }
+
+  /**
+   * 上传图片到飞书并返回 image_key
+   */
+  async uploadImage(filePath: string): Promise<string | null> {
+    try {
+      const file = fs.readFileSync(filePath);
+      const res = await this.client.im.v1.image.create({
+        data: {
+          image_type: 'message',
+          image: file,
+        },
+      });
+      if (!res || !res.image_key) {
+        log.warn(`Failed to upload image: missing image_key`);
+        return null;
+      }
+      return res.image_key;
+    } catch (err) {
+      log.error(`Error uploading image: ${err}`);
+      return null;
+    }
+  }
+
+  /**
+   * 上传文件到飞书并返回 file_key
+   */
+  async uploadFile(filePath: string): Promise<string | null> {
+    try {
+      const file = fs.createReadStream(filePath);
+      const fileName = path.basename(filePath);
+      const res = await this.client.im.v1.file.create({
+        data: {
+          file_type: 'stream',
+          file_name: fileName,
+          file: file,
+        },
+      });
+      if (!res || !res.file_key) {
+        log.warn(`Failed to upload file: missing file_key`);
+        return null;
+      }
+      return res.file_key;
+    } catch (err) {
+      log.error(`Error uploading file: ${err}`);
+      return null;
+    }
+  }
+
+  /**
+   * 单独发送文件消息
+   */
+  async sendFileMessage(
+    chatId: string,
+    fileKey: string,
+    options?: { replyToMessageId?: string },
+  ): Promise<void> {
+    const content = JSON.stringify({ file_key: fileKey });
+    try {
+      if (options?.replyToMessageId) {
+        await this.client.im.message.reply({
+          path: { message_id: options.replyToMessageId },
+          data: {
+            msg_type: 'file',
+            content,
+          },
+        });
+      } else {
+        await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: {
+            receive_id: chatId,
+            msg_type: 'file',
+            content,
+          },
+        });
+      }
+    } catch (err) {
+      log.error(`Error sending file message: ${err}`);
+    }
+  }
+
+  /**
+   * 解析并处理文本中的本地图片和文件
+   * 将图片替换为 ![image](image_key) 格式
+   * 提取普通文件，上传并通过单独的消息发送出去
+   */
+  async processMarkdownResources(
+    text: string,
+    chatId: string,
+    options?: { replyToMessageId?: string },
+  ): Promise<string> {
+    let processedText = text;
+
+    // 1. 处理图片: 匹配 ![文字](路径)
+    const imageRegex = /!\[.*?\]\((.*?)\)/g;
+    const imageMatches = [...text.matchAll(imageRegex)];
+    for (const match of imageMatches) {
+      const originalString = match[0];
+      let imagePath = match[1];
+
+      // Handle remote images: download them first
+      if (
+        imagePath &&
+        (imagePath.startsWith('http://') || imagePath.startsWith('https://'))
+      ) {
+        try {
+          const response = await fetch(imagePath);
+          const imageBuffer = await response.arrayBuffer();
+          // Extract filename from URL or use a generated name
+          const urlPath = new URL(imagePath).pathname;
+          let imageName = path.basename(urlPath);
+          if (!imageName || !imageName.includes('.')) {
+            imageName = `downloaded_${Date.now()}.png`; // fallback
+          }
+
+          const downloadPath = path.join(
+            config.workspaceDir,
+            'temp',
+            'downloads',
+          );
+          if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath, { recursive: true });
+          }
+
+          const localPath = path.join(downloadPath, imageName);
+          fs.writeFileSync(localPath, Buffer.from(imageBuffer));
+          imagePath = localPath; // update imagePath to the local downloaded file
+        } catch (err) {
+          log.warn(`Failed to download remote image ${imagePath}: ${err}`);
+          // Fallback: convert markdown image syntax to a normal link if download fails
+          processedText = processedText.replace(
+            originalString,
+            `[${imagePath}](${imagePath})`,
+          );
+          continue;
+        }
+      }
+
+      // 如果路径存在或者是本地文件 (now including downloaded ones)
+      if (
+        imagePath &&
+        !imagePath.startsWith('http') &&
+        fs.existsSync(imagePath)
+      ) {
+        const imageKey = await this.uploadImage(imagePath);
+        if (imageKey) {
+          processedText = processedText.replace(
+            originalString,
+            `![image](${imageKey})`,
+          );
+        } else {
+          // Fallback if upload fails
+          processedText = processedText.replace(originalString, '');
+        }
+      } else {
+        // If it's still not a valid local path at this point, remove it or convert to link
+        processedText = processedText.replace(originalString, '');
+      }
+    }
+
+    // 2. 处理普通文件: 匹配 [文字](路径)，并且前面不是 !
+    const fileRegex = /(?<!!)\[.*?\]\(([^)]+)\)/g;
+    const fileMatches = [...text.matchAll(fileRegex)];
+    const seenFiles = new Set<string>();
+
+    for (const match of fileMatches) {
+      const filePath = match[1];
+      if (
+        filePath &&
+        !filePath.startsWith('http') &&
+        fs.existsSync(filePath) &&
+        !seenFiles.has(filePath)
+      ) {
+        seenFiles.add(filePath);
+        const fileKey = await this.uploadFile(filePath);
+        if (fileKey) {
+          await this.sendFileMessage(chatId, fileKey, options);
+        }
+      }
+    }
+
+    return processedText;
   }
 
   /**
@@ -335,8 +522,8 @@ export class FeishuSender {
         elements: [
           {
             tag: 'collapsible_panel',
-            element_id: STREAM_EL.thinkingPanel, // 可直接删除整个面板
-            expanded: false,
+            element_id: STREAM_EL.thinkingPanel,
+            expanded: false, // 改为默认展开，以便看到工具调用和结果
             header: {
               title: { tag: 'plain_text', content: '💭 Thinking' },
               icon: {
