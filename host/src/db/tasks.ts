@@ -67,8 +67,7 @@ export function initTaskRunLogsTable(db: any): void {
             executed_at INTEGER NOT NULL,
             success INTEGER NOT NULL DEFAULT 0,
             output TEXT NOT NULL DEFAULT '',
-            error TEXT,
-            FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+            error TEXT
         )
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_logs ON task_run_logs(task_id, executed_at)`);

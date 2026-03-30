@@ -90,15 +90,22 @@ export class CronService {
       } catch (err) {
         console.error(`[CronService] Task ${task.id} failed:`, err);
 
-        // 记录失败日志
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        addTaskRunLog(task.id, false, '', errorMsg);
-        updateTaskAfterRun(
-          task.id,
-          this.calculateNextRun(task),
-          errorMsg,
-          'failed',
-        );
+        try {
+          // 记录失败日志
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          addTaskRunLog(task.id, false, '', errorMsg);
+          updateTaskAfterRun(
+            task.id,
+            this.calculateNextRun(task),
+            errorMsg,
+            'failed',
+          );
+        } catch (logErr) {
+          console.error(
+            `[CronService] Failed to log error for task ${task.id}:`,
+            logErr,
+          );
+        }
       } finally {
         this.executingTasks.delete(task.id);
       }
@@ -161,20 +168,27 @@ export class CronService {
       success = false;
     }
 
-    // 记录执行日志
-    addTaskRunLog(task.id, success, output, error);
+    try {
+      // 记录执行日志
+      addTaskRunLog(task.id, success, output, error);
 
-    // 计算下次执行时间
-    const nextRun = this.calculateNextRun(task);
+      // 计算下次执行时间
+      const nextRun = this.calculateNextRun(task);
 
-    // 更新任务状态
-    const resultMsg = success ? 'Success' : `Failed: ${error}`;
-    updateTaskAfterRun(
-      task.id,
-      nextRun,
-      resultMsg,
-      nextRun === null ? 'completed' : undefined,
-    );
+      // 更新任务状态
+      const resultMsg = success ? 'Success' : `Failed: ${error}`;
+      updateTaskAfterRun(
+        task.id,
+        nextRun,
+        resultMsg,
+        nextRun === null ? 'completed' : undefined,
+      );
+    } catch (err) {
+      console.error(
+        `[CronService] Failed to save task run log or update task status for ${task.id}:`,
+        err,
+      );
+    }
 
     // 推送结果到对应渠道
     await this.pushResultToChannel(task, output, error, success);

@@ -17,6 +17,8 @@ export function initDatabase(dbPath: string): Database.Database {
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  // 显式开启外键约束，保证 SQLite 删除级联（ON DELETE CASCADE）等特性生效
+  db.pragma('foreign_keys = ON');
 
   // Initialize all tables
   initSessionsTable(db);
