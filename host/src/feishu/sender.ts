@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { logger } from './logger.js';
 import type { FeishuResponse, FeishuConfig } from './types.js';
 import { getHttpClient, toCredentials, type BotCredentials } from './client.js';
+import { config } from '../config.js';
 
 const log = logger('feishu:sender');
 
@@ -92,7 +93,7 @@ export class FeishuSender {
   async sendFileMessage(
     chatId: string,
     fileKey: string,
-    options?: { replyToMessageId?: string }
+    options?: { replyToMessageId?: string },
   ): Promise<void> {
     const content = JSON.stringify({ file_key: fileKey });
     try {
@@ -127,7 +128,7 @@ export class FeishuSender {
   async processMarkdownResources(
     text: string,
     chatId: string,
-    options?: { replyToMessageId?: string }
+    options?: { replyToMessageId?: string },
   ): Promise<string> {
     let processedText = text;
 
@@ -136,13 +137,65 @@ export class FeishuSender {
     const imageMatches = [...text.matchAll(imageRegex)];
     for (const match of imageMatches) {
       const originalString = match[0];
-      const imagePath = match[1];
-      // 如果路径存在或者是本地文件
-      if (imagePath && !imagePath.startsWith('http') && fs.existsSync(imagePath)) {
+      let imagePath = match[1];
+
+      // Handle remote images: download them first
+      if (
+        imagePath &&
+        (imagePath.startsWith('http://') || imagePath.startsWith('https://'))
+      ) {
+        try {
+          const response = await fetch(imagePath);
+          const imageBuffer = await response.arrayBuffer();
+          // Extract filename from URL or use a generated name
+          const urlPath = new URL(imagePath).pathname;
+          let imageName = path.basename(urlPath);
+          if (!imageName || !imageName.includes('.')) {
+            imageName = `downloaded_${Date.now()}.png`; // fallback
+          }
+
+          const downloadPath = path.join(
+            config.workspaceDir,
+            'temp',
+            'downloads',
+          );
+          if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath, { recursive: true });
+          }
+
+          const localPath = path.join(downloadPath, imageName);
+          fs.writeFileSync(localPath, Buffer.from(imageBuffer));
+          imagePath = localPath; // update imagePath to the local downloaded file
+        } catch (err) {
+          log.warn(`Failed to download remote image ${imagePath}: ${err}`);
+          // Fallback: convert markdown image syntax to a normal link if download fails
+          processedText = processedText.replace(
+            originalString,
+            `[${imagePath}](${imagePath})`,
+          );
+          continue;
+        }
+      }
+
+      // 如果路径存在或者是本地文件 (now including downloaded ones)
+      if (
+        imagePath &&
+        !imagePath.startsWith('http') &&
+        fs.existsSync(imagePath)
+      ) {
         const imageKey = await this.uploadImage(imagePath);
         if (imageKey) {
-          processedText = processedText.replace(originalString, `![image](${imageKey})`);
+          processedText = processedText.replace(
+            originalString,
+            `![image](${imageKey})`,
+          );
+        } else {
+          // Fallback if upload fails
+          processedText = processedText.replace(originalString, '');
         }
+      } else {
+        // If it's still not a valid local path at this point, remove it or convert to link
+        processedText = processedText.replace(originalString, '');
       }
     }
 
