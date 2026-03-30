@@ -129,17 +129,17 @@ async function getOrStartContainer(
     '-d',
     '--name',
     containerName,
-    '--network=host',
+    '--add-host=host.docker.internal:host-gateway', // 兼容 linux
     `--memory=2g`,
     `--cpus=2`,
     `-v`,
-    `${workspacePath}:/workspace/files:rw`,
+    `${workspacePath}:/workspace/files:rw`, // 挂载工作目录
     `-v`,
-    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`,
+    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`, // 挂载momoclaw项目根目录
     `-v`,
-    `${sessionDir}:/workspace/session_tmp:rw`,
+    `${sessionDir}:/workspace/session_tmp:rw`, // 挂载会话临时目录
     `-v`,
-    `${claudeDir}:/home/node/.claude:rw`,
+    `${claudeDir}:/home/node/.claude:rw`, // 挂载Claude会话目录
     CONTAINER_IMAGE,
     'tail',
     '-f',
@@ -208,6 +208,13 @@ export async function runContainerAgent(
   const outputFile = join(outputDir, 'result.json');
 
   // 构建 docker exec 参数
+  // 由于在 Mac 上我们之前在启动容器时已经配置了 --network=host，在某些环境下(如 OrbStack)可以支持 127.0.0.1
+  // 但为了最大的兼容性，我们可以尝试传递宿主机在 Docker 桥接网络中的 IP。
+  // 不过我们现在是在使用 Docker Desktop/OrbStack 的 host.docker.internal 约定
+  const hostMcpPort = (await import('./index.js')).hostMcpPort;
+  // 注意，Docker 在 --network=host 时，host.docker.internal 可能无法解析。
+  // 我们改用宿主机实际的 IP 或者通过环境变量获取。由于宿主机的 IP 可能变化，这里可以依赖我们在启动容器时挂载的环境
+  const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
   const dockerArgs = [
     'exec',
     '-i',
@@ -221,6 +228,8 @@ export async function runContainerAgent(
     `GITHUB_TOKEN=${config.githubToken}`,
     '-e',
     `TMP_DIR=/workspace/session_tmp/${runId}/workspace`,
+    '-e',
+    `HOST_MCP_URL=${hostMcpUrl}`,
     '-u',
     'node',
     activeContainer.containerName,
@@ -326,30 +335,6 @@ export async function runContainerAgent(
         const result: ContainerResult = JSON.parse(
           readFileSync(outputFile, 'utf-8'),
         );
-
-        // Handle cron actions from container (schedule, list, pause, resume, delete, logs)
-        const cronToolPrefix = 'mcp__momoclaw_mcp__';
-        const cronActions =
-          result.toolCalls?.filter(
-            (call) =>
-              call.name.startsWith(cronToolPrefix) &&
-              [
-                'schedule_task',
-                'list_scheduled_tasks',
-                'pause_task',
-                'resume_task',
-                'delete_task',
-                'get_task_logs',
-              ].includes(call.name.slice(cronToolPrefix.length)),
-          ) || [];
-        if (cronActions.length > 0) {
-          await executeCronActions(
-            cronActions,
-            payload.session.id,
-            onToolEvent,
-            payload.channelContext,
-          );
-        }
 
         resolve(result);
       } catch (err) {

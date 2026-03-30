@@ -13,6 +13,7 @@ import {
   ChannelContext,
 } from '../types.js';
 import { config, getApiConfig } from '../config.js';
+import { sessionQueue } from './sessionQueue.js';
 
 export interface ChatInput {
   content: string;
@@ -47,77 +48,80 @@ export interface ChatOutput {
  */
 export async function processChat(input: ChatInput): Promise<ChatOutput> {
   const { content, session } = input;
-  const apiConfig = getApiConfig(config, session.model || undefined);
 
-  // Save user message
-  addMessage(session.id, 'user', content);
+  return sessionQueue.enqueue(session.id, async () => {
+    const apiConfig = getApiConfig(config, session.model || undefined);
 
-  // Update payload to only send the current user input and let the container use SDK's resume feature
-  const payload: PromptPayload = {
-    session,
-    messages: [], // 传空数组，因为容器端将使用 resume
-    userInput: content,
-    apiConfig: apiConfig,
-    channelContext: input.channelContext,
-    memory: {
-      todayPath: '',
-      recentContent: '', // 总结已经由 SDK 内部管理，不再需要重复传入
-    },
-  };
+    // Save user message
+    addMessage(session.id, 'user', content);
 
-  let contentBuffer = '';
-
-  try {
-    const result = await runContainerAgent(
-      payload,
-      (chunk) => {
-        contentBuffer += chunk;
-        // Forward chunk to callback if provided for real-time streaming
-        input.onChunk?.(chunk);
+    // Update payload to only send the current user input and let the container use SDK's resume feature
+    const payload: PromptPayload = {
+      session,
+      messages: [], // 传空数组，因为容器端将使用 resume
+      userInput: content,
+      apiConfig: apiConfig,
+      channelContext: input.channelContext,
+      memory: {
+        todayPath: '',
+        recentContent: '', // 总结已经由 SDK 内部管理，不再需要重复传入
       },
-      input.onToolEvent || (() => {}),
-    );
+    };
 
-    if (result.success) {
-      const finalContent = contentBuffer || result.content;
-      const message = addMessage(
-        session.id,
-        'assistant',
-        finalContent,
-        result.toolCalls,
+    let contentBuffer = '';
+
+    try {
+      const result = await runContainerAgent(
+        payload,
+        (chunk) => {
+          contentBuffer += chunk;
+          // Forward chunk to callback if provided for real-time streaming
+          input.onChunk?.(chunk);
+        },
+        input.onToolEvent || (() => {}),
       );
 
-      // 处理来自容器的压缩上下文摘要
-      if (result.compactedSummary) {
-        // 更新数据库的压缩游标和摘要，保留所有原始消息供查看
-        updateSessionSummary(
+      if (result.success) {
+        const finalContent = contentBuffer || result.content;
+        const message = addMessage(
           session.id,
-          result.compactedSummary
+          'assistant',
+          finalContent,
+          result.toolCalls,
         );
-      }
 
-      // 记录由 SDK 分配的 session id
-      if (result.claudeSessionId) {
-        updateSession(session.id, { claudeSessionId: result.claudeSessionId });
-      }
+        // 处理来自容器的压缩上下文摘要
+        if (result.compactedSummary) {
+          // 更新数据库的压缩游标和摘要，保留所有原始消息供查看
+          updateSessionSummary(
+            session.id,
+            result.compactedSummary
+          );
+        }
 
-      return {
-        content: finalContent,
-        toolCalls: result.toolCalls,
-        success: true,
-      };
-    } else {
+        // 记录由 SDK 分配的 session id
+        if (result.claudeSessionId) {
+          updateSession(session.id, { claudeSessionId: result.claudeSessionId });
+        }
+
+        return {
+          content: finalContent,
+          toolCalls: result.toolCalls,
+          success: true,
+        };
+      } else {
+        return {
+          content: '',
+          success: false,
+          error: result.error || 'Unknown error',
+        };
+      }
+    } catch (err) {
       return {
         content: '',
         success: false,
-        error: result.error || 'Unknown error',
+        error: `Container error: ${err}`,
       };
     }
-  } catch (err) {
-    return {
-      content: '',
-      success: false,
-      error: `Container error: ${err}`,
-    };
-  }
+  });
 }

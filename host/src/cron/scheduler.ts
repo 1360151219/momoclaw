@@ -19,17 +19,9 @@ import {
 import { runContainerAgent } from '../container.js';
 import { getApiConfig, config } from '../config.js';
 import { channelRegistry } from './sender.js';
+import { sessionQueue } from '../core/sessionQueue.js';
 
-// Cron 表达式解析 (简化版)
-// 格式: "分 时 日 月 周"
-// 支持: * 表示任意, 具体数字, 逗号分隔多个值
-interface CronFields {
-  minute: number[];
-  hour: number[];
-  dayOfMonth: number[];
-  month: number[];
-  dayOfWeek: number[];
-}
+import { CronExpressionParser } from 'cron-parser';
 
 export interface CronServiceOptions {
   pollIntervalMs?: number;
@@ -84,14 +76,17 @@ export class CronService {
     const now = Date.now();
     const dueTasks = getDueTasks(now);
 
-    for (const task of dueTasks) {
+    const taskPromises = dueTasks.map(async (task) => {
       // 防止同一任务被并发执行
-      if (this.executingTasks.has(task.id)) continue;
+      if (this.executingTasks.has(task.id)) return;
 
       this.executingTasks.add(task.id);
 
       try {
-        await this.executeTask(task);
+        // 使用 sessionQueue 保证同一 Session 的任务串行执行，避免上下文冲突
+        await sessionQueue.enqueue(task.sessionId, () =>
+          this.executeTask(task),
+        );
       } catch (err) {
         console.error(`[CronService] Task ${task.id} failed:`, err);
 
@@ -107,7 +102,10 @@ export class CronService {
       } finally {
         this.executingTasks.delete(task.id);
       }
-    }
+    });
+
+    // 跨会话并发执行任务
+    await Promise.all(taskPromises);
   }
 
   /**
@@ -124,17 +122,13 @@ export class CronService {
     // 构建执行提示词
     const executionPrompt = `[Scheduled Task]\n${task.prompt}`;
 
-    // 保存任务触发消息（用于记录，但不影响执行上下文）
-    addMessage(task.sessionId, 'user', executionPrompt);
-
-    // 构建 payload - 定时任务只携带自身上下文，不携带会话历史
-    // 避免历史聊天信息污染任务执行上下文
+    // 构建 payload - 包含 claudeSessionId 以便容器内的 Claude Agent SDK 使用 resume 机制恢复历史上下文
     const payload: PromptPayload = {
       session: {
         ...session,
         systemPrompt: session.systemPrompt || config.defaultSystemPrompt,
       },
-      messages: [], // 定时任务独立执行，不带历史消息
+      messages: [], // 容器端将使用 resume(claudeSessionId) 来加载持久化的历史
       userInput: executionPrompt,
       apiConfig: getApiConfig(config, session.model || undefined),
     };
@@ -154,6 +148,8 @@ export class CronService {
         output = output || result.content;
         toolCalls = result.toolCalls;
 
+        // 只有在任务真正执行成功后，才把用户的触发提示词和 AI 的回复一起存入数据库
+        addMessage(task.sessionId, 'user', executionPrompt);
         // 保存助手回复
         addMessage(task.sessionId, 'assistant', output, toolCalls);
       } else {
@@ -255,183 +251,25 @@ export class CronService {
   }
 
   /**
-   * 计算下次 Cron 执行时间（优化版）
-   * 直接计算下一个匹配时间，避免暴力搜索
+   * 计算下次 Cron 执行时间
+   * 使用 cron-parser 库来保证计算的准确性
    */
   private calculateNextCronRun(
     cronExpr: string,
     fromTime: number,
   ): number | null {
     try {
-      const fields = this.parseCronExpression(cronExpr);
-      const date = new Date(fromTime);
-
-      // 从下一分钟开始
-      date.setMinutes(date.getMinutes() + 1);
-      date.setSeconds(0);
-      date.setMilliseconds(0);
-
-      const maxIterations = 366 * 24 * 60; // 最多查找366天
-      let iterations = 0;
-
-      while (iterations < maxIterations) {
-        const currentYear = date.getFullYear();
-        const currentMonth = date.getMonth() + 1;
-        const currentDay = date.getDate();
-        const currentHour = date.getHours();
-        const currentMinute = date.getMinutes();
-
-        // 检查月份
-        if (fields.month.length > 0 && !fields.month.includes(currentMonth)) {
-          // 跳到下个月的第一天
-          date.setDate(1);
-          date.setMonth(date.getMonth() + 1);
-          date.setHours(0);
-          date.setMinutes(0);
-          continue;
-        }
-
-        // 检查日期和星期
-        const dayOfWeek = date.getDay();
-        const dayOfMonthMatch =
-          fields.dayOfMonth.length === 0 ||
-          fields.dayOfMonth.includes(currentDay);
-        const dayOfWeekMatch =
-          fields.dayOfWeek.length === 0 || fields.dayOfWeek.includes(dayOfWeek);
-
-        if (!dayOfMonthMatch && !dayOfWeekMatch) {
-          // 跳到明天
-          date.setDate(date.getDate() + 1);
-          date.setHours(0);
-          date.setMinutes(0);
-          continue;
-        }
-
-        // 检查小时
-        if (fields.hour.length > 0 && !fields.hour.includes(currentHour)) {
-          // 找到下一个匹配的小时
-          const nextHour = this.findNextValue(fields.hour, currentHour);
-          if (nextHour !== null && nextHour > currentHour) {
-            date.setHours(nextHour);
-            date.setMinutes(0);
-            continue;
-          } else {
-            // 跳到明天
-            date.setDate(date.getDate() + 1);
-            date.setHours(fields.hour.length > 0 ? fields.hour[0] : 0);
-            date.setMinutes(0);
-            continue;
-          }
-        }
-
-        // 检查分钟
-        if (
-          fields.minute.length > 0 &&
-          !fields.minute.includes(currentMinute)
-        ) {
-          const nextMinute = this.findNextValue(fields.minute, currentMinute);
-          if (nextMinute !== null && nextMinute > currentMinute) {
-            date.setMinutes(nextMinute);
-            return date.getTime();
-          } else {
-            // 跳到下一小时
-            date.setHours(date.getHours() + 1);
-            date.setMinutes(fields.minute.length > 0 ? fields.minute[0] : 0);
-            continue;
-          }
-        }
-
-        // 所有字段都匹配
-        return date.getTime();
-      }
-
-      return null;
-    } catch {
+      const interval = CronExpressionParser.parse(cronExpr, {
+        currentDate: new Date(fromTime),
+      });
+      return interval.next().getTime();
+    } catch (err) {
+      console.error(
+        `[CronService] Failed to parse cron expression: ${cronExpr}`,
+        err,
+      );
       return null;
     }
-  }
-
-  /**
-   * 在有序数组中找到大于目标值的下一个值
-   */
-  private findNextValue(sortedArray: number[], target: number): number | null {
-    for (const value of sortedArray) {
-      if (value > target) {
-        return value;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * 解析 Cron 表达式
-   */
-  private parseCronExpression(expr: string): CronFields {
-    const parts = expr.trim().split(/\s+/);
-    if (parts.length !== 5) {
-      throw new Error('Invalid cron expression: expected 5 fields');
-    }
-
-    return {
-      minute: this.parseCronField(parts[0], 0, 59),
-      hour: this.parseCronField(parts[1], 0, 23),
-      dayOfMonth: this.parseCronField(parts[2], 1, 31),
-      month: this.parseCronField(parts[3], 1, 12),
-      dayOfWeek: this.parseCronField(parts[4], 0, 6),
-    };
-  }
-
-  /**
-   * 解析单个 Cron 字段
-   */
-  private parseCronField(field: string, min: number, max: number): number[] {
-    if (field === '*') {
-      return [];
-    }
-
-    const values = new Set<number>();
-    const parts = field.split(',');
-
-    for (const part of parts) {
-      if (part.includes('-')) {
-        const [start, end] = part.split('-').map(Number);
-        for (let i = start; i <= end; i++) {
-          if (i >= min && i <= max) values.add(i);
-        }
-      } else {
-        const val = Number(part);
-        if (val >= min && val <= max) values.add(val);
-      }
-    }
-
-    return Array.from(values).sort((a, b) => a - b);
-  }
-
-  /**
-   * 检查日期是否匹配 Cron 表达式
-   */
-  private matchesCron(date: Date, fields: CronFields): boolean {
-    const minute = date.getMinutes();
-    const hour = date.getHours();
-    const dayOfMonth = date.getDate();
-    const month = date.getMonth() + 1;
-    const dayOfWeek = date.getDay();
-
-    // 空数组表示任意值 (*)
-    if (fields.minute.length > 0 && !fields.minute.includes(minute))
-      return false;
-    if (fields.hour.length > 0 && !fields.hour.includes(hour)) return false;
-
-    // 日期和周几是 "或" 关系
-    const dayOfMonthMatch =
-      fields.dayOfMonth.length === 0 || fields.dayOfMonth.includes(dayOfMonth);
-    const dayOfWeekMatch =
-      fields.dayOfWeek.length === 0 || fields.dayOfWeek.includes(dayOfWeek);
-    if (!dayOfMonthMatch && !dayOfWeekMatch) return false;
-
-    if (fields.month.length > 0 && !fields.month.includes(month)) return false;
-
-    return true;
   }
 
   /**
@@ -446,11 +284,7 @@ export class CronService {
    */
   static validateCronExpression(expr: string): boolean {
     try {
-      const parts = expr.trim().split(/\s+/);
-      if (parts.length !== 5) return false;
-
-      const service = new CronService();
-      service.parseCronExpression(expr);
+      CronExpressionParser.parse(expr);
       return true;
     } catch {
       return false;

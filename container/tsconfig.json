@@ -9,5 +9,5 @@
     "rootDir": "./src",
     "skipLibCheck": true
   },
-  "include": ["src/index.ts", "src/article-fetcher.ts", "src/types.ts"]
+  "include": ["src/index.ts", "src/mcp/article-fetcher.ts", "src/types.ts"]
 }

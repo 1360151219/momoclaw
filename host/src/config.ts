@@ -44,7 +44,7 @@ export function loadConfig(): Config {
     defaultModel: process.env.MODEL || 'anthropic/claude-3-5-sonnet-20241022',
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     workspaceDir,
-    containerTimeout: parseInt('120000000', 10),
+    containerTimeout: 2 * 24 * 60 * 60 * 1000, // 2天
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
     feishu: feishuConfig,

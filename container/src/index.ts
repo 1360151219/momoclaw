@@ -13,7 +13,7 @@ import {
   ToolCall,
   ToolEvent,
 } from './types.js';
-import { createArticleFetcherMcpServer, CRON_TOOLS } from './mcp/index.js';
+import { createArticleFetcherMcpServer } from './mcp/index.js';
 import { logger } from './debug.js';
 import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 
@@ -46,7 +46,7 @@ async function runAgentWithSDK(
   compactedSummary?: string;
   claudeSessionId?: string;
 }> {
-  const { session, userInput, apiConfig, memory } = payload;
+  const { session, userInput, apiConfig, channelContext } = payload;
 
   // 构建增强的系统提示词
   let enhancedSystemPrompt = session.systemPrompt || '';
@@ -107,6 +107,14 @@ async function runAgentWithSDK(
     stderr: (data: any) => process.stderr.write(data),
     mcpServers: {
       momoclaw_mcp: articleFetcherMcpServer,
+      ...(process.env.HOST_MCP_URL
+        ? {
+            host_mcp: {
+              type: 'sse' as const,
+              url: `${process.env.HOST_MCP_URL}?channelType=${channelContext?.type}&channelId=${channelContext?.channelId}`,
+            },
+          }
+        : {}),
       context7: {
         type: 'http',
         url: 'https://mcp.context7.com/mcp',
