@@ -1,5 +1,5 @@
 /**
- * Enhanced UI Components for MiniClaw
+ * Enhanced UI Components for momoClaw
  * Provides loading animations, thinking timers, and tool call visualization
  */
 
@@ -121,7 +121,7 @@ export function displayWelcomeBanner(sessionId: string, model: string): void {
     console.log(
         kleur.bold().cyan('│') +
             '           ' +
-            kleur.bold().white('MiniClaw AI Assistant') +
+            kleur.bold().white('MomoClaw AI Assistant') +
             '           ' +
             kleur.bold().cyan('│'),
     );

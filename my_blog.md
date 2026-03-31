@@ -183,7 +183,7 @@ for await (const message of query({
 // Host.ts - 核心逻辑
 export async function runContainerAgent(payload: PromptPayload) {
   // 1. 创建临时目录用于 IPC
-  const tempDir = join(tmpdir(), `miniclaw-${sessionId}`);
+  const tempDir = join(tmpdir(), `momoclaw-${sessionId}`);
   const inputDir = join(tempDir, 'input');
   const outputDir = join(tempDir, 'output');
 

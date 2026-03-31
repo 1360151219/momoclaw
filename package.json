@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "description": "MomoClaw AI Assistant - A minimal AI assistant with container isolation",
   "scripts": {
-    "setup": "cd host && npm install && cd ../container && npm install",
-    "build": "cd host && npm run build && cd ../container && npm run build",
-    "build:container": "docker build -t miniclaw-agent:latest ./container",
+    "install:all": "npm install --prefix host && npm install --prefix container",
+    "build:host": "npm run build --prefix host",
+    "build:container": "npm run build --prefix container",
+    "build:docker": "docker build -t momoclaw-agent:latest ./container",
+    "build:docker-linux": "docker buildx build --platform linux/amd64 -t registry.cn-beijing.aliyuncs.com/strk2/momoclaw-agent:latest --push ./container",
+    "build": "npm run build:host && npm run build:docker",
+    "setup": "npm run install:all && npm run build",
     "start": "cd host && node dist/index.js",
-    "chat": "cd host && node dist/index.js chat"
+    "start:feishu": "cd host && node dist/index.js feishu",
+    "start:weixin": "cd host && node dist/index.js weixin"
   }
 }

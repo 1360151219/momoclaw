@@ -4,16 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**MiniClaw (MomoClaw)** is a minimal, educational AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety. The codebase is intentionally small to be easy to understand and modify.
-
-This is a simplified version derived from the NanoClaw project. The `/nanoclaw` directory contains the full NanoClaw project as a reference.
+**MomoClaw** is a minimal AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety. The codebase is intentionally small to be easy to understand and modify.
 
 ## Architecture
 
 ### Two-Component Structure
 
 ```
-Host (CLI Interface)
+Host (CLI / Bot Interfaces)
     ↓ spawns Docker container
 Container (AI Agent)
     ↓ uses
@@ -22,8 +20,16 @@ Claude Agent SDK + Anthropic API
 
 ### Key Directories
 
-- `host/` - Host CLI application (TypeScript, Node.js)
+- `host/` - Host application (TypeScript, Node.js)
+  - `src/cli/` - Interactive CLI interface
+  - `src/core/` - Core chat service and session management
+  - `src/feishu/` - Feishu (Lark) bot integration
+  - `src/weixin/` - Weixin (WeChat) bot integration
+  - `src/cron/` - Scheduled task system
+  - `src/db/` - SQLite database layer
+  - `src/mcp/` - MCP server implementation
 - `container/` - AI agent that runs inside Docker (TypeScript, Node.js)
+  - `src/mcp/` - Article fetcher MCP service
 - `workspace/` - Mounted to containers as `/workspace/files` (read-write)
 
 ## Commands
@@ -36,6 +42,17 @@ npm run build          # Compile TypeScript for both host and container
 npm run build:container # Build Docker image
 npm run start          # Run the host CLI
 npm run chat           # Start chat mode
+```
+
+### Host Package Scripts
+
+```bash
+cd host
+npm run build          # Build host
+npm run dev            # Run with tsx (no build needed)
+npm run test           # Run tests with vitest
+npm run test:watch     # Run tests in watch mode
+npm run test:coverage  # Run tests with coverage
 ```
 
 ### Host CLI Commands
@@ -59,8 +76,9 @@ node dist/index.js                        # Default: interactive chat
 # Build container image
 node dist/index.js build
 
-# Memory management
-node dist/index.js memory [date]           # View memory files
+# Bot modes
+node dist/index.js feishu                 # Start Feishu (Lark) bot
+node dist/index.js weixin                 # Start Weixin (WeChat) bot
 ```
 
 ### Interactive Chat Commands
@@ -101,6 +119,27 @@ The UI displays events in the order they happen:
 The project code is mounted read-only at `/workspace/project` inside containers:
 - AI can read its own implementation
 - Code modifications require manual copying from the host
+
+### Weixin (WeChat) Bot Integration
+
+The project includes a Weixin bot implementation with these key features:
+- **QR Code Login**: Terminal-based QR code scanning for bot authentication
+- **Long Polling**: Real-time message receiving via getUpdates endpoint (35s timeout)
+- **Context Token Management**: Each user's latest context_token is stored and used for replies
+- **Media Decryption**: AES-128-ECB decryption for CDN-hosted images
+- **Typing Indicator**: Sends "typing" status while waiting for LLM responses
+- **User Isolation**: Each Weixin user gets their own session mapped as `wx_<userId>`
+
+Architecture layers:
+- `weixin/client.ts` - API auth, QR login, request headers
+- `weixin/gateway.ts` - Long polling connection and message pulling
+- `weixin/crypto.ts` - AES-128-ECB decryption for media files
+- `weixin/bot.ts` - Business logic layer, converts Weixin messages to standard format
+
+### MCP (Model Context Protocol) Services
+
+- **Host MCP Server**: Runs on port 51506
+- **Article Fetcher**: Container-side MCP service for fetching articles from platforms like Zhihu, WeChat, Juejin, CSDN, etc.
 
 ## Development Workflow
 
@@ -167,30 +206,56 @@ The container includes bash and sets `SHELL=/bin/bash` for Claude Agent SDK
 
 Environment variables (`host/.env`):
 ```bash
-ANTHROPIC_API_KEY=          # Required
+# API Keys (at least one required)
+ANTHROPIC_API_KEY=          # Required for Anthropic models
 ANTHROPIC_BASE_URL=         # Optional (for Kimi, etc.)
-OPENAI_API_KEY=             # Optional
+OPENAI_API_KEY=             # Optional for OpenAI-compatible models
 OPENAI_BASE_URL=            # Optional
+
+# Default Settings
 MODEL=anthropic/claude-3-5-sonnet-20241022
 MAX_TOKENS=4096
 WORKSPACE_DIR=./workspace
 CONTAINER_TIMEOUT=300000
 DB_PATH=./data/miniclaw.db
 DEFAULT_SYSTEM_PROMPT=
+
+# Optional: Additional API keys
+GITHUB_TOKEN=
+CONTEXT7_API_KEY=
+
+# Feishu (Lark) Bot Configuration (optional)
+FEISHU_APP_ID=
+FEISHU_APP_SECRET=
+FEISHU_DOMAIN=feishu
+FEISHU_ENCRYPT_KEY=
+FEISHU_VERIFICATION_TOKEN=
+FEISHU_AUTO_REPLY_GROUPS=
+
+# Weixin (WeChat) Bot Configuration (optional)
+WEIXIN_BASE_URL=https://ilinkai.weixin.qq.com
+WEIXIN_CDN_BASE_URL=https://novac2c.cdn.weixin.qq.com/c2c
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `host/src/index.ts` | CLI entry point, Commander.js commands |
-| `host/src/db.ts` | SQLite session/message storage |
+| `host/src/index.ts` | Main entry point, CLI and bot command routing |
+| `host/src/config.ts` | Environment configuration loading |
 | `host/src/container.ts` | Docker container orchestration |
-| `host/src/config.ts` | Environment configuration, AIEOS loading |
-| `host/src/memory.ts` | Daily memory system |
-| `host/src/ui.ts` | UI components and event display |
+| `host/src/core/chatService.ts` | Core chat orchestration |
+| `host/src/db/` | SQLite session/message/task storage |
+| `host/src/cron/` | Scheduled task system |
+| `host/src/feishu/` | Feishu (Lark) bot integration |
+| `host/src/weixin/client.ts` | Weixin API client and auth |
+| `host/src/weixin/gateway.ts` | Weixin long polling message gateway |
+| `host/src/weixin/crypto.ts` | Weixin media decryption (AES-128-ECB) |
+| `host/src/weixin/bot.ts` | Weixin bot business logic |
+| `host/src/cli/ui.ts` | CLI UI components and event display |
 | `container/src/index.ts` | Claude Agent SDK integration |
-| `host/src/types.ts`, `container/src/types.ts` | Shared type definitions |
+| `container/src/mcp/article-fetcher.ts` | Article fetching MCP service |
+| `host/src/types.ts`, `container/src/types.ts` | Type definitions |
 
 ## Model Format
 

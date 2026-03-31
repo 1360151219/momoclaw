@@ -30,7 +30,7 @@ function safeStringify(obj: unknown): string {
     return value;
   });
 }
-const CONTAINER_IMAGE = 'miniclaw-agent:latest';
+const CONTAINER_IMAGE = 'momoclaw-agent:latest';
 
 /**
  * 查找项目根目录
@@ -109,12 +109,12 @@ async function getOrStartContainer(
     return existing;
   }
 
-  const sessionDir = join(tmpdir(), `miniclaw-session-${sessionId}`);
+  const sessionDir = join(tmpdir(), `momoclaw-session-${sessionId}`);
   mkdirSync(sessionDir, { recursive: true });
-  
+
   // Sanitize Docker container name to only contain valid characters [a-zA-Z0-9][a-zA-Z0-9_.-]
   const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const containerName = `miniclaw-${sanitizedSessionId}`;
+  const containerName = `momoclaw-${sanitizedSessionId}`;
 
   const workspacePath = resolve(config.workspaceDir);
   const projectRootPath = findProjectRoot(__dirname);
@@ -157,7 +157,11 @@ async function getOrStartContainer(
     child.stderr?.on('data', (d) => (stderr += d.toString()));
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`Failed to start container ${containerName}. Code: ${code}, Stderr: ${stderr}, Stdout: ${stdout}`));
+        reject(
+          new Error(
+            `Failed to start container ${containerName}. Code: ${code}, Stderr: ${stderr}, Stdout: ${stdout}`,
+          ),
+        );
       } else {
         const activeContainer = {
           sessionId,

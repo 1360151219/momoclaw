@@ -52,7 +52,7 @@ export function loadConfig(): Config {
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
     workspaceDir,
     containerTimeout: 2 * 24 * 60 * 60 * 1000, // 2天
-    dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
+    dbPath: resolve(process.env.DB_PATH || './data/momoclaw.db'),
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
     feishu: feishuConfig,
     weixin: weixinConfig,

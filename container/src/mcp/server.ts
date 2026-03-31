@@ -38,7 +38,7 @@ export function formatArticle(article: {
  */
 export function createArticleFetcherMcpServer() {
   return createSdkMcpServer({
-    name: 'miniclaw-mcp',
+    name: 'momoclaw-mcp',
     version: '1.0.0',
     tools: [
       tool(
