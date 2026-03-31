@@ -1,5 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
-import { writeFileSync, mkdirSync, readFileSync, existsSync, rmSync } from 'fs';
+import {
+  writeFileSync,
+  mkdirSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  chmodSync,
+} from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
@@ -109,8 +116,14 @@ async function getOrStartContainer(
     return existing;
   }
 
+  // 批量创建宿主机的基础挂载目录并赋予最高权限，防止挂载后容器内无权限读写
   const sessionDir = join(tmpdir(), `momoclaw-session-${sessionId}`);
-  mkdirSync(sessionDir, { recursive: true });
+  const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
+
+  [sessionDir, claudeDir].forEach((dir) => {
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o777);
+  });
 
   // Sanitize Docker container name to only contain valid characters [a-zA-Z0-9][a-zA-Z0-9_.-]
   const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
@@ -123,9 +136,6 @@ async function getOrStartContainer(
   try {
     spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
   } catch {}
-
-  const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
-  mkdirSync(claudeDir, { recursive: true });
 
   const dockerArgs = [
     'run',
@@ -205,13 +215,16 @@ export async function runContainerAgent(
   const outputDir = join(runDir, 'output');
   const containerWorkspace = join(runDir, 'workspace');
 
-  mkdirSync(inputDir, { recursive: true });
-  mkdirSync(outputDir, { recursive: true });
-  mkdirSync(containerWorkspace, { recursive: true });
+  // 批量创建目录并赋予最高权限，避免容器内无权限写入
+  [runDir, inputDir, outputDir, containerWorkspace].forEach((dir) => {
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o777);
+  });
 
   // 写入prompt到输入文件
   const inputFile = join(inputDir, 'payload.json');
   writeFileSync(inputFile, safeStringify(payload));
+  chmodSync(inputFile, 0o666); // 确保容器内可读写
 
   // 准备输出文件路径
   const outputFile = join(outputDir, 'result.json');
