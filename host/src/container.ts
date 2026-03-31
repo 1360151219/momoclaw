@@ -111,7 +111,10 @@ async function getOrStartContainer(
 
   const sessionDir = join(tmpdir(), `miniclaw-session-${sessionId}`);
   mkdirSync(sessionDir, { recursive: true });
-  const containerName = `miniclaw-${sessionId}`;
+  
+  // Sanitize Docker container name to only contain valid characters [a-zA-Z0-9][a-zA-Z0-9_.-]
+  const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const containerName = `miniclaw-${sanitizedSessionId}`;
 
   const workspacePath = resolve(config.workspaceDir);
   const projectRootPath = findProjectRoot(__dirname);
@@ -149,10 +152,12 @@ async function getOrStartContainer(
   return new Promise((resolve, reject) => {
     const child = spawn('docker', dockerArgs);
     let stderr = '';
+    let stdout = '';
+    child.stdout?.on('data', (d) => (stdout += d.toString()));
     child.stderr?.on('data', (d) => (stderr += d.toString()));
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`Failed to start container: ${stderr}`));
+        reject(new Error(`Failed to start container ${containerName}. Code: ${code}, Stderr: ${stderr}, Stdout: ${stdout}`));
       } else {
         const activeContainer = {
           sessionId,

@@ -7,6 +7,7 @@ import { CronService } from './cron/index.js';
 import kleur from 'kleur';
 import { startInteractiveChat } from './cli/index.js';
 import { startFeishuBot } from './feishu/bot.js';
+import { startWeixinBot } from './weixin/bot.js';
 import { channelRegistry } from './cron/sender.js';
 import { FeishuCronHandler } from './feishu/cronHandler.js';
 import { startHostMcpServer } from './mcp/server.js';
@@ -70,6 +71,16 @@ async function startFeishu(): Promise<void> {
   await startFeishuBot({ feishuConfig: config.feishu });
 }
 
+async function startWeixin(): Promise<void> {
+  if (!config.weixin) {
+    console.error(kleur.red('Error: Weixin config is missing in .env'));
+    process.exit(1);
+  }
+
+  console.log(kleur.cyan('Starting Weixin bot...'));
+  await startWeixinBot({ weixinConfig: config.weixin });
+}
+
 // Main entry
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -82,6 +93,10 @@ async function main(): Promise<void> {
   await initialize();
   if (args[0] === 'feishu') {
     await startFeishu();
+    return;
+  }
+  if (args[0] === 'weixin') {
+    await startWeixin();
     return;
   }
 

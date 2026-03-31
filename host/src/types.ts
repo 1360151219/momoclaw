@@ -87,6 +87,10 @@ export interface Config {
   dbPath: string;
   defaultSystemPrompt: string;
   feishu?: FeishuConfig;
+  weixin?: {
+    baseUrl: string;
+    cdnBaseUrl: string;
+  };
 }
 
 export interface MemoryContext {
@@ -106,7 +110,7 @@ export type ToolEvent =
   | { type: 'thinking'; content: string };
 
 // Channel types for cross-channel notifications
-export type ChannelType = 'feishu' | 'terminal';
+export type ChannelType = 'feishu' | 'terminal' | 'weixin';
 
 export interface ChannelContext {
   type: ChannelType;

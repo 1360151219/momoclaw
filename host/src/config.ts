@@ -34,6 +34,13 @@ export function loadConfig(): Config {
       }
     : undefined;
 
+  const weixinConfig = {
+    baseUrl: process.env.WEIXIN_BASE_URL || 'https://ilinkai.weixin.qq.com',
+    cdnBaseUrl:
+      process.env.WEIXIN_CDN_BASE_URL ||
+      'https://novac2c.cdn.weixin.qq.com/c2c',
+  };
+
   return {
     githubToken: process.env.GITHUB_TOKEN,
     context7ApiKey: process.env.CONTEXT7_API_KEY,
@@ -48,6 +55,7 @@ export function loadConfig(): Config {
     dbPath: resolve(process.env.DB_PATH || './data/miniclaw.db'),
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
     feishu: feishuConfig,
+    weixin: weixinConfig,
   };
 }
 
