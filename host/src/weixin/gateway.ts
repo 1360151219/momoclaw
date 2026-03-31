@@ -19,7 +19,7 @@ export class WeixinGateway extends EventEmitter {
     this.client = new WeixinClient(config);
     this.cdnBaseUrl = config.cdnBaseUrl;
     // ensure workspace temp dir exists for images
-    this.workspaceDir = path.resolve(process.cwd(), '../workspace/temp');
+    this.workspaceDir = path.resolve(process.cwd(), './workspace/temp');
     if (!fs.existsSync(this.workspaceDir)) {
       fs.mkdirSync(this.workspaceDir, { recursive: true });
     }
