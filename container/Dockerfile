@@ -41,8 +41,7 @@ COPY --chown=node:node src/ ./src/
 RUN npm run build
 
 # 创建workspace目录
-RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp \
-    && chown -R node:node /workspace
+RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp
 
 USER node
 

@@ -94,7 +94,6 @@ export class WeixinBot {
       });
 
       if (fullReply.trim()) {
-        console.log('[Weixin] fullReply:', fullReply.trim());
         // Get the latest context token from gateway store
         const currentToken =
           this.gateway.getContextToken(msg.chatId) || msg.contextToken;
