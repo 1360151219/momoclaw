@@ -14,7 +14,6 @@ import { startHostMcpServer } from './mcp/server.js';
 
 // Global instances
 let cronService: CronService;
-export const hostMcpPort: number = 51506;
 
 /**
  * Initialize core services
@@ -34,7 +33,7 @@ async function initialize(): Promise<void> {
   cronService.start();
 
   // 启动宿主机 MCP Server
-  await startHostMcpServer(hostMcpPort);
+  await startHostMcpServer(config.hostMcpPort);
 }
 
 /**

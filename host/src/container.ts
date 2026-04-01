@@ -208,9 +208,9 @@ class AgentRunner {
     chmodSync(inputFile, 0o777);
 
     const outputFile = join(outputDir, 'result.json');
-    chmodSync(outputFile, 0o777);
+    // outputFile will be created by the container, no need to chmodSync here
 
-    const hostMcpPort = (await import('./index.js')).hostMcpPort;
+    const hostMcpPort = config.hostMcpPort;
     const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
 
     const dockerArgs = [

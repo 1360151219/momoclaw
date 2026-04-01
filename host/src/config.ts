@@ -56,6 +56,7 @@ export function loadConfig(): Config {
     defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT || '',
     feishu: feishuConfig,
     weixin: weixinConfig,
+    hostMcpPort: parseInt(process.env.HOST_MCP_PORT || '51506', 10),
   };
 }
 
