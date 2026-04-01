@@ -1,14 +1,14 @@
 import { WeixinGateway } from './gateway.js';
 import type { WeixinConfig, UnifiedMessage } from './types.js';
 import { processChat } from '../core/chatService.js';
-import {
-  getSession,
-  createSession,
-  clearSessionMessages,
-} from '../db/index.js';
+import { getSession, createSession } from '../db/index.js';
 import type { Session, ChannelContext } from '../types.js';
 import { config } from '../config.js';
-import { existsSync, readFileSync } from 'fs';
+import { parseCommand } from '../utils/command.js';
+import {
+  executeCommand as coreExecuteCommand,
+  type BaseCommandContext,
+} from '../core/commands/executor.js';
 
 export interface WeixinBotOptions {
   weixinConfig: WeixinConfig;
@@ -50,13 +50,22 @@ export class WeixinBot {
     console.log('[Weixin] Received message Before Handle:', msg);
     const session = this.getOrCreateSession(msg.chatId);
 
-    // Support clear command
-    if (msg.text && msg.text.trim() === '/clear') {
-      clearSessionMessages(session.id);
-      await this.gateway
-        .getClient()
-        .sendTextMessage(msg.chatId, '🗑️ Context cleared.', msg.contextToken);
-      return;
+    // Support commands
+    if (msg.text) {
+      const cmd = parseCommand(msg.text);
+      if (cmd) {
+        const baseContext: BaseCommandContext = {
+          channelId: msg.chatId,
+          channelType: 'weixin',
+          session: session,
+        };
+        const response = await coreExecuteCommand(cmd.command, baseContext);
+
+        await this.gateway
+          .getClient()
+          .sendTextMessage(msg.chatId, response.text, msg.contextToken);
+        return;
+      }
     }
 
     // Show typing indicator
