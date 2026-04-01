@@ -1,67 +1,24 @@
-import { spawn, ChildProcess } from 'child_process';
-import {
-  writeFileSync,
-  mkdirSync,
-  readFileSync,
-  existsSync,
-  rmSync,
-  chmodSync,
-} from 'fs';
+import { spawn } from 'child_process';
+import { writeFileSync, readFileSync, existsSync, rmSync, chmodSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import {
-  ContainerResult,
-  PromptPayload,
-  ToolEvent,
-  ChannelContext,
-} from './types.js';
+import { ContainerResult, PromptPayload, ToolEvent } from './types.js';
 import { config } from './config.js';
-import { executeCronActions } from './cron/executor.js';
+import {
+  findProjectRoot,
+  ensureDirWithPerms,
+  safeStringify,
+} from './hooks/utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/**
- * 安全的 JSON 序列化，处理循环引用
- */
-function safeStringify(obj: unknown): string {
-  const seen = new WeakSet();
-  return JSON.stringify(obj, (key, value) => {
-    if (typeof value === 'object' && value !== null) {
-      if (seen.has(value)) {
-        return '[Circular Reference]';
-      }
-      seen.add(value);
-    }
-    return value;
-  });
-}
+// --- Constants ---
 const CONTAINER_IMAGE = 'momoclaw-agent:latest';
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30分钟无新对话则销毁
+const CLEANUP_INTERVAL_MS = 60 * 1000; // 每分钟检查一次
 
-/**
- * 查找项目根目录
- * 从当前目录向上遍历，直到找到包含  .git 的目录
- */
-function findProjectRoot(startPath: string): string {
-  let currentDir = startPath;
-  while (true) {
-    // 检查特征文件： .git 目录
-    if (existsSync(join(currentDir, '.git'))) {
-      return currentDir;
-    }
-
-    const parentDir = dirname(currentDir);
-    if (parentDir === currentDir) {
-      // 如果到达文件系统根目录仍未找到，回退到默认的相对路径假设，或者抛出错误
-      // 为了安全起见，这里抛出错误，提示用户环境配置可能不正确
-      throw new Error('无法找到项目根目录（未发现 .git）');
-    }
-    currentDir = parentDir;
-  }
-}
-
-// --- 容器保活与超时销毁机制 ---
+// --- Types ---
 interface ActiveContainer {
   sessionId: string;
   containerName: string;
@@ -69,322 +26,328 @@ interface ActiveContainer {
   lastAccessed: number;
 }
 
-const activeContainers = new Map<string, ActiveContainer>();
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30分钟无新对话则销毁
+// --- Container Manager ---
+/**
+ * 负责管理 Docker 容器的生命周期，包括启动、保活、超时清理和进程退出时的销毁
+ */
+class ContainerManager {
+  private activeContainers = new Map<string, ActiveContainer>();
+  private cleanupInterval: NodeJS.Timeout;
 
-// 定时清理过期容器
-setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, container] of activeContainers.entries()) {
-    if (now - container.lastAccessed > IDLE_TIMEOUT_MS) {
-      console.log(
-        `[ContainerManager] 容器 ${container.containerName} 超过 ${IDLE_TIMEOUT_MS / 60000} 分钟空闲，准备销毁...`,
-      );
-      try {
-        spawn('docker', ['rm', '-f', container.containerName]);
-        rmSync(container.sessionDir, { recursive: true, force: true });
-      } catch (err) {
-        console.error(
-          `[ContainerManager] 清理容器 ${container.containerName} 失败:`,
-          err,
+  constructor() {
+    this.cleanupInterval = setInterval(
+      () => this.cleanupIdleContainers(),
+      CLEANUP_INTERVAL_MS,
+    );
+    this.registerProcessHandlers();
+  }
+
+  private cleanupIdleContainers() {
+    const now = Date.now();
+    for (const [sessionId, container] of this.activeContainers.entries()) {
+      if (now - container.lastAccessed > IDLE_TIMEOUT_MS) {
+        console.log(
+          `[ContainerManager] 容器 ${container.containerName} 超过 ${IDLE_TIMEOUT_MS / 60000} 分钟空闲，准备销毁...`,
         );
+        this.destroyContainer(container);
+        this.activeContainers.delete(sessionId);
       }
-      activeContainers.delete(sessionId);
     }
   }
-}, 60 * 1000); // 每分钟检查一次
 
-// 进程退出时清理所有活跃容器
-process.on('exit', () => {
-  for (const container of activeContainers.values()) {
+  private registerProcessHandlers() {
+    process.on('exit', () => this.destroyAllContainers());
+    process.on('SIGINT', () => process.exit());
+    process.on('SIGTERM', () => process.exit());
+  }
+
+  private destroyContainer(container: ActiveContainer) {
     try {
       spawn('docker', ['rm', '-f', container.containerName]);
       rmSync(container.sessionDir, { recursive: true, force: true });
+    } catch (err) {
+      console.error(
+        `[ContainerManager] 清理容器 ${container.containerName} 失败:`,
+        err,
+      );
+    }
+  }
+
+  public destroyAllContainers() {
+    for (const container of this.activeContainers.values()) {
+      this.destroyContainer(container);
+    }
+    this.activeContainers.clear();
+    clearInterval(this.cleanupInterval);
+  }
+
+  public async getOrStartContainer(
+    sessionId: string,
+  ): Promise<ActiveContainer> {
+    const existing = this.activeContainers.get(sessionId);
+    if (existing) {
+      existing.lastAccessed = Date.now();
+      return existing;
+    }
+
+    const workspacePath = resolve(config.workspaceDir);
+    const projectRootPath = findProjectRoot(__dirname);
+    const tempDir = join(workspacePath, 'temp');
+
+    const sessionDir = join(tempDir, `momoclaw-session-${sessionId}`);
+    const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
+
+    [workspacePath, tempDir, sessionDir, claudeDir].forEach((dir) =>
+      ensureDirWithPerms(dir),
+    );
+
+    const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const containerName = `momoclaw-${sanitizedSessionId}`;
+
+    // 清理可能存在的残留同名容器
+    try {
+      spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
     } catch {}
-  }
-});
 
-process.on('SIGINT', () => process.exit());
-process.on('SIGTERM', () => process.exit());
+    const dockerArgs = [
+      'run',
+      '-d',
+      '--name',
+      containerName,
+      '--add-host=host.docker.internal:host-gateway', // 兼容 linux
+      `--memory=2g`,
+      `--cpus=2`,
+      `-v`,
+      `${workspacePath}:/workspace/files:rw`,
+      `-v`,
+      `${projectRootPath}:/workspace/files/projects/momoclaw:rw`,
+      `-v`,
+      `${sessionDir}:/workspace/session_tmp:rw`,
+      `-v`,
+      `${claudeDir}:/home/node/.claude:rw`,
+      CONTAINER_IMAGE,
+      'tail',
+      '-f',
+      '/dev/null',
+    ];
 
-async function getOrStartContainer(
-  sessionId: string,
-): Promise<ActiveContainer> {
-  const existing = activeContainers.get(sessionId);
-  if (existing) {
-    existing.lastAccessed = Date.now();
-    return existing;
-  }
+    return new Promise((resolve, reject) => {
+      const child = spawn('docker', dockerArgs);
+      let stderr = '';
+      let stdout = '';
+      child.stdout?.on('data', (d) => (stdout += d.toString()));
+      child.stderr?.on('data', (d) => (stderr += d.toString()));
 
-  // 批量创建宿主机的基础挂载目录并赋予最高权限，防止挂载后容器内无权限读写
-  const sessionDir = join(tmpdir(), `momoclaw-session-${sessionId}`);
-  const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
-
-  [sessionDir, claudeDir].forEach((dir) => {
-    mkdirSync(dir, { recursive: true });
-    chmodSync(dir, 0o777);
-  });
-
-  // Sanitize Docker container name to only contain valid characters [a-zA-Z0-9][a-zA-Z0-9_.-]
-  const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const containerName = `momoclaw-${sanitizedSessionId}`;
-
-  const workspacePath = resolve(config.workspaceDir);
-  const projectRootPath = findProjectRoot(__dirname);
-
-  // 清理可能存在的残留同名容器
-  try {
-    spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
-  } catch {}
-
-  const dockerArgs = [
-    'run',
-    '-d',
-    '--name',
-    containerName,
-    '--add-host=host.docker.internal:host-gateway', // 兼容 linux
-    `--memory=2g`,
-    `--cpus=2`,
-    `-v`,
-    `${workspacePath}:/workspace/files:rw`, // 挂载工作目录
-    `-v`,
-    `${projectRootPath}:/workspace/files/projects/momoclaw:rw`, // 挂载momoclaw项目根目录
-    `-v`,
-    `${sessionDir}:/workspace/session_tmp:rw`, // 挂载会话临时目录
-    `-v`,
-    `${claudeDir}:/home/node/.claude:rw`, // 挂载Claude会话目录
-    CONTAINER_IMAGE,
-    'tail',
-    '-f',
-    '/dev/null',
-  ];
-
-  return new Promise((resolve, reject) => {
-    const child = spawn('docker', dockerArgs);
-    let stderr = '';
-    let stdout = '';
-    child.stdout?.on('data', (d) => (stdout += d.toString()));
-    child.stderr?.on('data', (d) => (stderr += d.toString()));
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            `Failed to start container ${containerName}. Code: ${code}, Stderr: ${stderr}, Stdout: ${stdout}`,
-          ),
-        );
-      } else {
-        const activeContainer = {
-          sessionId,
-          containerName,
-          sessionDir,
-          lastAccessed: Date.now(),
-        };
-        activeContainers.set(sessionId, activeContainer);
-        console.log(
-          `[ContainerManager] 容器 ${containerName} 已启动，后台保活中...`,
-        );
-        resolve(activeContainer);
-      }
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(
+            new Error(
+              `Failed to start container ${containerName}. Code: ${code}, Stderr: ${stderr}, Stdout: ${stdout}`,
+            ),
+          );
+        } else {
+          const activeContainer = {
+            sessionId,
+            containerName,
+            sessionDir,
+            lastAccessed: Date.now(),
+          };
+          this.activeContainers.set(sessionId, activeContainer);
+          console.log(
+            `[ContainerManager] 容器 ${containerName} 已启动，后台保活中...`,
+          );
+          resolve(activeContainer);
+        }
+      });
+      child.on('error', reject);
     });
-    child.on('error', reject);
-  });
+  }
 }
 
-export async function runContainerAgent(
-  payload: PromptPayload,
-  onStream?: (chunk: string) => void,
-  onToolEvent?: (event: ToolEvent) => void,
-): Promise<ContainerResult> {
-  const sessionId = payload.session.id;
-  const runId = randomBytes(8).toString('hex');
+// --- Agent Runner ---
+/**
+ * 负责在指定的 Docker 容器中执行具体的代理任务，并处理输入输出
+ */
+class AgentRunner {
+  private manager: ContainerManager;
 
-  let activeContainer: ActiveContainer;
-  try {
-    activeContainer = await getOrStartContainer(sessionId);
-  } catch (err: any) {
-    return {
-      success: false,
-      content: '',
-      error: `Container startup failed: ${err.message}`,
-    };
+  constructor(manager: ContainerManager) {
+    this.manager = manager;
   }
 
-  // 创建本次运行的临时目录
-  const runDir = join(activeContainer.sessionDir, runId);
-  const inputDir = join(runDir, 'input');
-  const outputDir = join(runDir, 'output');
-  const containerWorkspace = join(runDir, 'workspace');
+  public async run(
+    payload: PromptPayload,
+    onStream?: (chunk: string) => void,
+    onToolEvent?: (event: ToolEvent) => void,
+  ): Promise<ContainerResult> {
+    const sessionId = payload.session.id;
+    const runId = randomBytes(8).toString('hex');
 
-  // 批量创建目录并赋予最高权限，避免容器内无权限写入
-  [runDir, inputDir, outputDir, containerWorkspace].forEach((dir) => {
-    mkdirSync(dir, { recursive: true });
-    chmodSync(dir, 0o777);
-  });
+    let activeContainer: ActiveContainer;
+    try {
+      activeContainer = await this.manager.getOrStartContainer(sessionId);
+    } catch (err: any) {
+      return {
+        success: false,
+        content: '',
+        error: `Container startup failed: ${err.message}`,
+      };
+    }
 
-  // 写入prompt到输入文件
-  const inputFile = join(inputDir, 'payload.json');
-  writeFileSync(inputFile, safeStringify(payload));
-  chmodSync(inputFile, 0o666); // 确保容器内可读写
+    const runDir = join(activeContainer.sessionDir, runId);
+    const inputDir = join(runDir, 'input');
+    const outputDir = join(runDir, 'output');
+    const containerWorkspace = join(runDir, 'workspace');
 
-  // 准备输出文件路径
-  const outputFile = join(outputDir, 'result.json');
+    [runDir, inputDir, outputDir, containerWorkspace].forEach((dir) =>
+      ensureDirWithPerms(dir),
+    );
 
-  // 构建 docker exec 参数
-  // 由于在 Mac 上我们之前在启动容器时已经配置了 --network=host，在某些环境下(如 OrbStack)可以支持 127.0.0.1
-  // 但为了最大的兼容性，我们可以尝试传递宿主机在 Docker 桥接网络中的 IP。
-  // 不过我们现在是在使用 Docker Desktop/OrbStack 的 host.docker.internal 约定
-  const hostMcpPort = (await import('./index.js')).hostMcpPort;
-  // 注意，Docker 在 --network=host 时，host.docker.internal 可能无法解析。
-  // 我们改用宿主机实际的 IP 或者通过环境变量获取。由于宿主机的 IP 可能变化，这里可以依赖我们在启动容器时挂载的环境
-  const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
-  const dockerArgs = [
-    'exec',
-    '-i',
-    '-e',
-    `INPUT_FILE=/workspace/session_tmp/${runId}/input/payload.json`,
-    '-e',
-    `OUTPUT_FILE=/workspace/session_tmp/${runId}/output/result.json`,
-    '-e',
-    `CONTEXT7_API_KEY=${config.context7ApiKey}`,
-    '-e',
-    `GITHUB_TOKEN=${config.githubToken}`,
-    '-e',
-    `TMP_DIR=/workspace/session_tmp/${runId}/workspace`,
-    '-e',
-    `HOST_MCP_URL=${hostMcpUrl}`,
-    '-u',
-    'node',
-    activeContainer.containerName,
-    'node',
-    '/app/dist/index.js',
-  ];
+    const inputFile = join(inputDir, 'payload.json');
+    writeFileSync(inputFile, safeStringify(payload));
+    chmodSync(inputFile, 0o666);
 
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    let stdout = '';
-    let stderr = '';
-    let buffer = '';
-    const toolEventMarker = '__TOOL_EVENT__:';
+    const outputFile = join(outputDir, 'result.json');
 
-    const child = spawn('docker', dockerArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const hostMcpPort = (await import('./index.js')).hostMcpPort;
+    const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
 
-    // 流式输出
-    child.stdout?.on('data', (data: Buffer) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      buffer += chunk;
+    const dockerArgs = [
+      'exec',
+      '-i',
+      '-e',
+      `INPUT_FILE=/workspace/session_tmp/${runId}/input/payload.json`,
+      '-e',
+      `OUTPUT_FILE=/workspace/session_tmp/${runId}/output/result.json`,
+      '-e',
+      `CONTEXT7_API_KEY=${config.context7ApiKey}`,
+      '-e',
+      `GITHUB_TOKEN=${config.githubToken}`,
+      '-e',
+      `TMP_DIR=/workspace/session_tmp/${runId}/workspace`,
+      '-e',
+      `HOST_MCP_URL=${hostMcpUrl}`,
+      '-u',
+      'node',
+      activeContainer.containerName,
+      'node',
+      '/app/dist/index.js',
+    ];
 
-      // Parse buffer for tool events and text content
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now();
+      let stdout = '';
+      let stderr = '';
+      let buffer = '';
+      const toolEventMarker = '__TOOL_EVENT__:';
 
-        if (line.startsWith(toolEventMarker)) {
-          // This is a tool event
-          try {
-            const eventJson = line.slice(toolEventMarker.length);
-            const event: ToolEvent = JSON.parse(eventJson);
-            if (onToolEvent) {
-              onToolEvent(event);
+      const child = spawn('docker', dockerArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      child.stdout?.on('data', (data: Buffer) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        buffer += chunk;
+
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+
+          if (line.startsWith(toolEventMarker)) {
+            try {
+              const eventJson = line.slice(toolEventMarker.length);
+              const event: ToolEvent = JSON.parse(eventJson);
+              if (onToolEvent) {
+                onToolEvent(event);
+              }
+            } catch {}
+          } else if (line) {
+            if (onStream) {
+              onStream(line + '\n');
             }
-          } catch {
-            // Ignore invalid tool events
-          }
-        } else if (line) {
-          // This is regular text content
-          if (onStream) {
-            onStream(line + '\n');
           }
         }
-      }
 
-      // If there's remaining buffer without a newline, send it as text
-      if (buffer && !buffer.includes(toolEventMarker)) {
-        if (onStream) {
+        if (buffer && !buffer.includes(toolEventMarker)) {
+          if (onStream) {
+            onStream(buffer);
+          }
+          buffer = '';
+        }
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      const timeoutId = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(
+          new Error(`Container timeout after ${config.containerTimeout}ms`),
+        );
+      }, config.containerTimeout);
+
+      child.on('close', (code) => {
+        clearTimeout(timeoutId);
+
+        if (buffer && onStream) {
           onStream(buffer);
         }
-        buffer = '';
-      }
+
+        if (code !== 0) {
+          const errorMsg = `Container exited with code ${code}.\nStderr: ${stderr}\nStdout (last 500 chars): ${stdout.slice(-500)}`;
+          console.error(errorMsg);
+          resolve({
+            success: false,
+            content: '',
+            error: errorMsg,
+          });
+          return;
+        }
+
+        if (!existsSync(outputFile)) {
+          resolve({
+            success: false,
+            content: '',
+            error: 'No output file generated by container',
+          });
+          return;
+        }
+
+        try {
+          const result: ContainerResult = JSON.parse(
+            readFileSync(outputFile, 'utf-8'),
+          );
+          resolve(result);
+        } catch (err) {
+          resolve({
+            success: false,
+            content: '',
+            error: `Failed to parse result: ${err}`,
+          });
+        } finally {
+          this.cleanupRunDir(runDir);
+        }
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timeoutId);
+        this.cleanupRunDir(runDir);
+        reject(err);
+      });
     });
+  }
 
-    child.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      // stderr 只记录，不输出给用户，避免干扰正常输出
-      // 调试信息会在出错时一并显示
-    });
-
-    // 超时处理
-    const timeoutId = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`Container timeout after ${config.containerTimeout}ms`));
-    }, config.containerTimeout);
-
-    child.on('close', async (code) => {
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-
-      // Send any remaining buffer
-      if (buffer && onStream) {
-        onStream(buffer);
-      }
-
-      if (code !== 0) {
-        const errorMsg = `Container exited with code ${code}.\nStderr: ${stderr}\nStdout (last 500 chars): ${stdout.slice(-500)}`;
-        console.error(errorMsg);
-        resolve({
-          success: false,
-          content: '',
-          error: errorMsg,
-        });
-        return;
-      }
-
-      // 读取结果文件
-      if (!existsSync(outputFile)) {
-        resolve({
-          success: false,
-          content: '',
-          error: 'No output file generated by container',
-        });
-        return;
-      }
-
-      try {
-        const result: ContainerResult = JSON.parse(
-          readFileSync(outputFile, 'utf-8'),
-        );
-
-        resolve(result);
-      } catch (err) {
-        resolve({
-          success: false,
-          content: '',
-          error: `Failed to parse result: ${err}`,
-        });
-      }
-      // 清理临时目录
-      try {
-        rmSync(runDir, { recursive: true, force: true });
-      } catch {
-        // 忽略清理错误
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timeoutId);
-      // 清理临时目录
-      try {
-        rmSync(runDir, { recursive: true, force: true });
-      } catch {}
-      reject(err);
-    });
-  });
+  private cleanupRunDir(runDir: string) {
+    try {
+      rmSync(runDir, { recursive: true, force: true });
+    } catch {}
+  }
 }
 
+// --- Docker Environment Check ---
 export function checkDockerAvailable(): boolean {
   try {
     const result = spawn('docker', ['--version'], { stdio: 'pipe' });
@@ -396,7 +359,6 @@ export function checkDockerAvailable(): boolean {
 
 export async function buildContainerImage(): Promise<boolean> {
   return new Promise((res, rej) => {
-    // 使用统一的 findProjectRoot 查找根目录，然后拼接 container 路径
     const rootDir = findProjectRoot(__dirname);
     const containerDir = join(rootDir, 'container');
 
@@ -411,4 +373,19 @@ export async function buildContainerImage(): Promise<boolean> {
 
     child.on('error', rej);
   });
+}
+
+// --- Module Exports ---
+const globalManager = new ContainerManager();
+const agentRunner = new AgentRunner(globalManager);
+
+/**
+ * 在容器中运行代理任务的入口函数
+ */
+export function runContainerAgent(
+  payload: PromptPayload,
+  onStream?: (chunk: string) => void,
+  onToolEvent?: (event: ToolEvent) => void,
+): Promise<ContainerResult> {
+  return agentRunner.run(payload, onStream, onToolEvent);
 }

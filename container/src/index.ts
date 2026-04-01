@@ -259,8 +259,14 @@ async function runAgentWithSDK(
 async function main(): Promise<void> {
   // 确保输出目录存在
   const outputDir = path.dirname(OUTPUT_FILE);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  try {
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+  } catch (error) {
+    logger(`Failed to create output directory`, {
+      outputDir: outputDir,
+    });
   }
 
   let payload: PromptPayload;
