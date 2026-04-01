@@ -21,7 +21,8 @@ import {
 } from './client.js';
 import { parseMessage } from './receiver.js';
 import { listMappings } from '../db/index.js';
-import { parseCommand, executeCommand, CommandContext } from './commands.js';
+import { executeCommand, type CommandContext } from './commands.js';
+import { parseCommand } from '../utils/command.js';
 
 const log = logger('feishu:gateway');
 
@@ -207,16 +208,16 @@ export class FeishuGateway {
         const startTime = Date.now();
         const response = await options.onMessage(message);
         response.elapsedMs = Date.now() - startTime;
-        
+
         // Process markdown for images and files before sending card
         if (response.text) {
           response.text = await this.sender.processMarkdownResources(
             response.text,
             message.chatId,
-            { replyToMessageId: message.id }
+            { replyToMessageId: message.id },
           );
         }
-        
+
         await this.sender.sendCard(message.chatId, response, {
           replyToMessageId: message.id,
         });
@@ -333,13 +334,13 @@ export class FeishuGateway {
 
       finalize: async (response: FeishuResponse) => {
         let finalText = response.text || mainText;
-        
+
         // Process markdown for images and files before finalizing
         if (finalText) {
           finalText = await this.sender.processMarkdownResources(
             finalText,
             message.chatId,
-            { replyToMessageId: message.id }
+            { replyToMessageId: message.id },
           );
         }
 

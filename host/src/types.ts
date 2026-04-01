@@ -86,6 +86,7 @@ export interface Config {
   containerTimeout: number;
   dbPath: string;
   defaultSystemPrompt: string;
+  hostMcpPort: number;
   feishu?: FeishuConfig;
   weixin?: {
     baseUrl: string;

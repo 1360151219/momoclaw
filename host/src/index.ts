@@ -10,11 +10,11 @@ import { startFeishuBot } from './feishu/bot.js';
 import { startWeixinBot } from './weixin/bot.js';
 import { channelRegistry } from './cron/sender.js';
 import { FeishuCronHandler } from './feishu/cronHandler.js';
+import { WeixinCronHandler } from './weixin/cronHandler.js';
 import { startHostMcpServer } from './mcp/server.js';
 
 // Global instances
 let cronService: CronService;
-export const hostMcpPort: number = 51506;
 
 /**
  * Initialize core services
@@ -34,7 +34,7 @@ async function initialize(): Promise<void> {
   cronService.start();
 
   // 启动宿主机 MCP Server
-  await startHostMcpServer(hostMcpPort);
+  await startHostMcpServer(config.hostMcpPort);
 }
 
 /**
@@ -76,6 +76,9 @@ async function startWeixin(): Promise<void> {
     console.error(kleur.red('Error: Weixin config is missing in .env'));
     process.exit(1);
   }
+
+  // Register Weixin channel handler for task result push
+  channelRegistry.register(new WeixinCronHandler(config.weixin));
 
   console.log(kleur.cyan('Starting Weixin bot...'));
   await startWeixinBot({ weixinConfig: config.weixin });

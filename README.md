@@ -55,6 +55,44 @@ npm run start
 npm run chat
 ```
 
+## ☁️ 服务器部署 (PM2)
+
+如果您希望在服务器上长期后台运行（例如运行飞书或微信机器人），推荐使用 [PM2](https://pm2.keymetrics.io/) 来管理进程。项目中已经为您配置好了 `ecosystem.config.js`。
+
+### 1. 全局安装 PM2
+
+如果您还没有安装 PM2，请先在服务器上全局安装：
+
+```bash
+npm install pm2 -g
+```
+
+### 2. 使用 PM2 启动项目
+
+**方式：通过 npm 脚本启动（推荐，更符合习惯）**
+```bash
+# 启动默认助手
+pm2 start npm --name "momoclaw-default" -- run start
+
+# 启动飞书机器人
+pm2 start npm --name "momoclaw-feishu" -- run start:feishu
+
+# 启动微信机器人
+pm2 start npm --name "momoclaw-weixin" -- run start:weixin
+```
+
+### 3. 常用 PM2 管理命令
+
+- **查看运行状态**：`pm2 list`
+- **查看实时日志**：`pm2 logs` (或者指定某个服务 `pm2 logs momoclaw-feishu`)
+- **重启服务**：`pm2 restart momoclaw-feishu`
+- **停止服务**：`pm2 stop momoclaw-feishu`
+- **设置开机自启**：
+  ```bash
+  pm2 save
+  pm2 startup
+  ```
+
 ## 📖 命令行指南
 
 MomoClaw 也可以通过直接调用 `host/dist/index.js` 来进行精细化的会话管理：

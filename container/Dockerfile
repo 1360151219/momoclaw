@@ -41,7 +41,12 @@ COPY --chown=node:node src/ ./src/
 RUN npm run build
 
 # 创建workspace目录
-RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp
+RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp \
+    && chown -R node:node /workspace \
+    && chmod -R 777 /workspace
+
+# 给 home 目录和 app 目录放开权限，以便在 Linux 服务器上以宿主机非 1000 的 UID 运行时，也能读写
+RUN chmod -R 777 /home/node /app
 
 USER node
 

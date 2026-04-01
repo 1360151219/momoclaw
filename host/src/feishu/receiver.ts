@@ -219,20 +219,4 @@ function extractRichText(parsed: Record<string, unknown>): RichTextResult {
     };
 }
 
-/**
- * Check if text is a slash command
- */
-export function isSlashCommand(text: string): { command: string; args: string } | null {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith('/')) return null;
 
-    const spaceIdx = trimmed.indexOf(' ');
-    if (spaceIdx === -1) {
-        return { command: trimmed.slice(1), args: '' };
-    }
-
-    return {
-        command: trimmed.slice(1, spaceIdx),
-        args: trimmed.slice(spaceIdx + 1).trim(),
-    };
-}

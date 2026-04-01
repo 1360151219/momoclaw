@@ -259,6 +259,12 @@ async function runAgentWithSDK(
 async function main(): Promise<void> {
   // 确保输出目录存在
   const outputDir = path.dirname(OUTPUT_FILE);
+  logger(`start check output directory1`, {
+    outputDir: outputDir,
+  });
+  logger(`start check output directory2`, {
+    isExist: fs.existsSync(outputDir),
+  });
   try {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
