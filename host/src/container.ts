@@ -4,12 +4,14 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
 import { ContainerResult, PromptPayload, ToolEvent } from './types.js';
-import { config } from './config.js';
+import { config, getApiConfig } from './config.js';
 import {
   findProjectRoot,
   ensureDirWithPerms,
   safeStringify,
 } from './hooks/utils.js';
+import { sessionQueue } from './core/sessionQueue.js';
+import { getSession } from './db/sessions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +26,7 @@ interface ActiveContainer {
   containerName: string;
   sessionDir: string;
   lastAccessed: number;
+  isDestroying?: boolean;
 }
 
 // --- Container Manager ---
@@ -45,14 +48,76 @@ class ContainerManager {
   private cleanupIdleContainers() {
     const now = Date.now();
     for (const [sessionId, container] of this.activeContainers.entries()) {
+      // Check if container is already being destroyed to avoid duplicate runs
+      if (container.isDestroying) continue;
+
       if (now - container.lastAccessed > IDLE_TIMEOUT_MS) {
         console.log(
-          `[ContainerManager] 容器 ${container.containerName} 超过 ${IDLE_TIMEOUT_MS / 60000} 分钟空闲，准备销毁...`,
+          `[ContainerManager] 容器 ${container.containerName} 超过 ${IDLE_TIMEOUT_MS / 60000} 分钟空闲，准备触发闲置回收...`,
         );
-        this.destroyContainer(container);
-        this.activeContainers.delete(sessionId);
+        container.isDestroying = true; // Mark as being destroyed
+
+        // 异步执行，不阻塞后续容器的检查
+        (async () => {
+          try {
+            await this.performAutoSummary(sessionId, container);
+          } catch (error) {
+            console.error(`[ContainerManager] 容器闲置收尾执行失败:`, error);
+          } finally {
+            this.destroyContainer(container);
+            this.activeContainers.delete(sessionId);
+          }
+        })();
       }
     }
+  }
+
+  /**
+   * 在容器销毁前触发收尾 SOP，利用容器内的 Claude Agent 自动总结和沉淀
+   */
+  private async performAutoSummary(
+    sessionId: string,
+    container: ActiveContainer,
+  ) {
+    // 将收尾 SOP 放入 sessionQueue，确保不与用户的并发消息冲突
+    await sessionQueue.enqueue(sessionId, async () => {
+      const session = getSession(sessionId);
+      if (!session) return;
+
+      console.log(
+        `\n[Auto Summary] 触发容器 ${container.containerName} 的收尾 SOP...`,
+      );
+
+      const apiConfig = getApiConfig(config, session.model || undefined);
+
+      // 我们不通过 processChat，而是直接调用 agentRunner.run，
+      // 这样这条指令和回复就不会污染数据库中的 user/assistant 聊天记录
+      const payload: PromptPayload = {
+        session,
+        messages: [],
+        userInput: `[System] 当前会话闲置超时，即将被系统回收。请立即启用你的 memory skill（记忆技能），自行评估本次会话的上下文：\n1. 判断是否有重要的新知识、未解决的待办事项、环境事实或错误解决经验。\n2. 如果有，请直接使用该 skill 将这些高价值信息进行沉淀和保存。\n3. 如果没有需要记录的内容，请直接结束。\n\n完成上述评估或操作后，请简要回复“已完成”。\n\n注意：这只是一条系统后台静默指令，请直接执行，不要有任何多余的寒暄。`,
+        apiConfig,
+      };
+
+      try {
+        // 使用底层的 run，避免循环依赖，直接让 runner 去跑
+        const result = await agentRunner.run(payload);
+        if (result.success) {
+          console.log(
+            `[Auto Summary] 容器 ${container.containerName} 收尾完成: ${result.content.substring(0, 100).replace(/\n/g, ' ')}...`,
+          );
+        } else {
+          console.log(
+            `[Auto Summary] 容器 ${container.containerName} 收尾失败或超时: ${result.error}`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[Auto Summary] 容器 ${container.containerName} 收尾发生异常:`,
+          err,
+        );
+      }
+    });
   }
 
   private registerProcessHandlers() {
