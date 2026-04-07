@@ -13,7 +13,6 @@ export {
   updateSessionModel,
   updateSessionSummary,
   updateSession,
-  migrateSessionsTable,
 } from './sessions.js';
 
 // Message operations

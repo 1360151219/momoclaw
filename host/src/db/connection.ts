@@ -1,13 +1,9 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { initSessionsTable, migrateSessionsTable } from './sessions.js';
+import { initSessionsTable } from './sessions.js';
 import { initMessagesTable } from './messages.js';
-import {
-  initTasksTable,
-  initTaskRunLogsTable,
-  migrateTasksTable,
-} from './tasks.js';
+import { initTasksTable, initTaskRunLogsTable } from './tasks.js';
 import { initFeishuMappingsTable } from './channels/feishuMappings.js';
 
 let db: Database.Database | null = null;
