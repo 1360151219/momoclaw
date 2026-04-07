@@ -56,7 +56,7 @@ function createSessionMcpServer(channelContext: any): McpServer {
           scheduleValue,
         );
 
-        const actualSessionId = sessionId || '';
+        const actualSessionId = sessionId || channelContext.sessionId || '';
 
         const task = createScheduledTask(
           taskId,
@@ -97,7 +97,7 @@ function createSessionMcpServer(channelContext: any): McpServer {
     },
     async ({ sessionId }) => {
       try {
-        const actualSessionId = sessionId;
+        const actualSessionId = sessionId || channelContext.sessionId;
         const tasks = listScheduledTasks(actualSessionId);
         return {
           content: [

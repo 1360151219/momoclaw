@@ -193,20 +193,3 @@ export function updateSession(
 
   return result.changes > 0;
 }
-
-export function migrateSessionsTable(db: any): void {
-  // Check if summary column exists
-  const columns = db.prepare('PRAGMA table_info(sessions)').all() as any[];
-  const hasSummary = columns.some((col) => col.name === 'summary');
-
-  if (!hasSummary) {
-    db.exec('ALTER TABLE sessions ADD COLUMN summary TEXT');
-  }
-
-  const hasClaudeSessionId = columns.some(
-    (col) => col.name === 'claude_session_id',
-  );
-  if (!hasClaudeSessionId) {
-    db.exec('ALTER TABLE sessions ADD COLUMN claude_session_id TEXT UNIQUE');
-  }
-}

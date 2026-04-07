@@ -1,241 +1,191 @@
 ---
 name: "memory"
-description: "read or save any important information as memory. Proactively saves information whenever it is judged to be important (e.g., user preferences, decisions, configs), ensuring critical context is captured without waiting for explicit commands."
+description: >
+  Save and recall long-term memory. Trigger when:
+  (1) User says "remember/save/record/note this";
+  (2) User states preferences ("I prefer...", "always use...", "next time...");
+  (3) User asks about prior context ("what did we decide?", "last time...", "do you remember...");
+  (4) User makes an important decision with rationale ("use X instead of Y because...").
 ---
 
 # Memory Skill
 
-Enable long-term memory for Agent; auto-save important info and recall historical context when needed.
+Persistent memory system for Agent. Save key information, recall historical context, and maintain continuity across sessions.
 
-## Memory File Structure
+## File Structure
 
-### Three Memory Types
+| Type | Path | Purpose | Token Limit |
+|------|------|---------|-------------|
+| **User Memory** | `memory/USER.md` | Preferences, decisions, project context | ≤ 500 tokens |
+| **Session Log** | `memory/sessions/YYYY-MM-DD.md` | Daily progress, temporary todos, session notes | ≤ 800 tokens |
 
-| Type | File Path | Content | Update Frequency |
-|------|-----------|---------|------------------|
-| **Daily Memory** | `/workspace/files/memory/YYYY-MM-DD/MEMORY.md` | Session details, progress, temporary todos | Multiple times daily |
-| **User Memory** | `/workspace/files/memory/USER.md` | User preferences, long-term context, key history | When preferences/context changes |
-| **AI Identity** | `/workspace/files/memory/SOUL.md` | AI identity, principles, capabilities | When identity settings change |
+> **Context Injection**: System auto-loads `USER.md` + today's session log at session start. Historical sessions are retrieved on-demand via search only.
 
-**Today's Memory**: `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`
+---
 
-### Standard Templates
+## When to Save (Decision Flow)
 
-**Daily Memory Example:**
+```
+User message received
+│
+├─ Explicit command? ("记住", "保存", "记录", "注意")
+│  └─ YES → Save immediately (MUST SAVE)
+│
+├─ Preference signal? ("我喜欢", "总是使用", "下次使用", "从现在开始使用")
+│  └─ YES → Save to USER.md
+│
+├─ Decision signal? ("决定使用", "使用X而不是Y", "选择", "切换到")
+│  └─ YES → Save decision + rationale to session log
+│
+├─ Todo signal? ("明天", "不要忘记", "需要", "稍后")
+│  └─ YES → Save as task to session log
+│
+├─ Completion signal? ("完成", "修复", "解决", "正在工作")
+│  └─ YES → Mark related task complete in session log
+│
+└─ None of the above → DO NOT SAVE
+```
+
+### Must NOT Save
+
+- **Passwords, API keys, tokens, secrets** — never store credentials
+- **One-off queries** — weather, exchange rates, quick lookups
+- **Common knowledge** — easily found in docs or search engines
+- **Unconfirmed speculation** — only save facts the user has stated or confirmed
+- **Verbose raw data** — save summaries, not full outputs
+
+---
+
+## How to Save
+
+### Step 1: Read Current File
+
+Read the target file. If the file does not exist, create it using the corresponding template below.
+
+### Step 2: Update Content
+
+- **Preferences** → update or append in `USER.md`
+- **Decisions / Progress / Todos** → append in today's session log
+- **Conflicting info** → overwrite old value, add update date
+
+### Step 3: Write Back
+
+Write the updated content back to the file. Ensure token limits are respected.
+
+### Error Handling
+
+- If Read fails with "file not found" → create file with template, then write
+- If Write fails → retry once; if still fails, inform user that memory was not saved
+- Never silently drop a save operation
+
+---
+
+## Conflict Resolution
+
+| Info Type | Strategy |
+|-----------|----------|
+| **Preferences** | New value overwrites old value. Append `(updated YYYY-MM-DD)` |
+| **Decisions** | Keep old decision marked `~~[superseded]~~`, add new decision below |
+| **Todos** | Mark completed with `[x]`. Remove items older than 7 days |
+| **Facts** | Replace with latest confirmed information |
+
+---
+
+## Templates
+
+### USER.md Template
+
 ```markdown
-# Daily Memory
+**Preferences**
+(empty — add preferences as discovered)
 
-**Important Facts**
-Key preferences discovered; project status updates; critical config values.
+**Tech Stack & Config**
+(empty — add project context, tools, architecture)
 
-**Decisions Made**
-- **Use SQLite instead of Redis**: Simpler deployment; sufficient for current scale.
-- **4-space indentation**: User preference over 2-space.
+**Key Decisions**
+(empty — add important decisions with rationale)
+```
+
+### Session Log Template
+
+```markdown
+# YYYY-MM-DD
 
 **Progress**
-- [x] Migrated auth to JWT; token refresh working.
+(empty)
 
-**Notes for Tomorrow**
-- [ ] Fix Docker networking issue; test production build.
+**Decisions**
+(empty)
+
+**Todos**
+- [ ] (empty)
+
+**Notes**
+(empty)
 ```
 
-**SOUL.md Example (English, dense style):**
-```markdown
-**Identity**: ENTP AI partner; pragmatic; anti-hustle ally.
-
-**Core Principles**
-User autonomy above all; freedom to game/rest is sacred; no anxiety-inducing language; humor essential.
-
-**Capabilities**: Full-stack coding; research; task execution; skill evolution.
-
-**Communication Style**
-Telegraphic when appropriate; Chinese primary but English for technical terms; no emojis unless requested.
-```
-
-**USER.md Example (English, dense style):**
-```markdown
-**Role**: Developer; MomoClaw maintainer.
-
-**Preferences**
-TypeScript strict mode; 4-space indent; single quotes; aggressive deletion over accumulation; modularity > monoliths.
-
-**Project Context**
-Building MomoClaw: minimal educational AI assistant; container isolation; local-first; AIEOS protocol support.
-
-**Stack**: TypeScript, Node.js, Docker, SQLite, Claude Agent SDK.
-```
-
-## When to Save Memory (Decision Flow)
-
-```
-Did user explicitly say "remember"/"save"/"record"?
-├─ Yes → Save immediately
-└─ No → Check for these signals:
-
-  - "I like..."/"Next time..."/"Always..." → Save preference
-  - "Decide to..."/"Choose..."/"Use...instead of..." → Save decision
-  - "Tomorrow do..."/"Don't forget..." → Save todo
-  - "Done"/"Solved"/"The reason is..." → Save result/solution
-  - Specific paths/configs/parameters involved → Save key values
-```
-
-### Priority Levels
-
-**🔴 Must Save**:
-- Explicit user command ("remember this")
-- Important decisions and rationale
-- User preferences/habits
-- Todo items/goals
-
-**🟡 Recommended Save**:
-- Key problems and solutions
-- Important configs/paths
-- Project milestones
-
-**🟢 Skip**:
-- Temporary queries/answers
-- Common knowledge
-- Content easily found in technical docs
-
-## How to Save Memory
-
-### Daily Memory (Read → Modify → Write)
-
-```typescript
-// 1. Read today's memory
-const today = new Date().toISOString().split('T')[0];
-const current = await Read({
-  file_path: `/workspace/files/memory/${today}/MEMORY.md`
-});
-
-// 2. Append content to appropriate section
-// Preferences → Important Facts
-// Decisions → Decisions Made
-// Tasks → Notes for Tomorrow
-// Completed → Progress
-
-// 3. Write back to file
-await Write({
-  file_path: `/workspace/files/memory/${today}/MEMORY.md`,
-  content: updated
-});
-```
-
-### USER.md Update Guide
-
-**When to Update**:
-- User explicitly states preference ("I prefer 4-space indent")
-- User workflow changes ("Use this approach from now on")
-- Project context changes (tech stack, architecture decisions)
-
-**Update Principles**:
-- **English only** (except user-language-specific terms)
-- **< 1000 tokens**, ruthlessly remove outdated content
-- **Telegraphic style**: dense sentences, no filler words, `**Bold**` titles instead of `##`
-- **Comma/semicolon-joined facts**, not bullet lists
-
-```typescript
-// Read current USER.md
-const userMd = await Read({
-  file_path: '/workspace/files/memory/USER.md'
-});
-
-// Use Edit for precise replacement, maintain dense format
-await Edit({
-  file_path: '/workspace/files/memory/USER.md',
-  old_string: '- Prefers 2-space indentation',
-  new_string: '- Prefers 4-space indentation; strict TypeScript'
-});
-```
-
-### SOUL.md Update Guide
-
-**When to Update**:
-- AI identity needs adjustment (personality, communication style)
-- Capability boundaries expand (new skill areas)
-- Core principles change
-
-**Update Principles**:
-- **English only** (except user-language-specific terms)
-- **< 1000 tokens**, merge duplicate content
-- **Telegraphic style**: dense sentences, no filler words
-- **Maintain identity consistency**, incremental updates
-
-```typescript
-const soulMd = await Read({
-  file_path: '/workspace/files/memory/SOUL.md'
-});
-
-// Use Edit for precise modification, maintain dense format
-await Edit({
-  file_path: '/workspace/files/memory/SOUL.md',
-  old_string: '**Communication Style**:\n- Primary Chinese',
-  new_string: '**Communication Style**:\n- Bilingual; technical terms in English'
-});
-```
-
-### Writing Style for `memory/` Files
-
-Dense, telegraphic short sentences. No filler words ("You are", "You should", "Your goal is to"). Comma/semicolon-joined facts, not bullet lists. `**Bold**` paragraph titles instead of `##` headers. Prioritize information density and low token count.
-
-## Language & Token Constraints
-
-**All UPPERCASE `.md` files under `memory/` (e.g., `SOUL.md`, `USER.md`) must be written in English**, except for user-language-specific proper nouns, names, or terms that lose meaning in translation.
-
-`SOUL.md` and `USER.md` are loaded into context every session. **Keep each file under 1000 tokens.** Be ruthless about deduplication and conciseness. Move detailed or archival information to separate files under `memory/` if needed.
-
-## Format Conventions
-
-**Preferences**: `- Description (e.g., Prefers 4-space indent)`
-**Decisions**: `- **Title**: Decision content + reason`
-**Tasks**: `- [ ] Task description`
-**Completed**: `- [x] Completed content`
+---
 
 ## Search Historical Memory
 
-```typescript
-// Search all memory files
-await Grep({
-  pattern: "keyword",
-  path: "/workspace/files/memory",
-  output_mode: "content"
-});
+When user asks about past context and the answer is not in today's session or USER.md:
 
-// List all memory dates
-await Glob({
-  pattern: "/workspace/files/memory/*/MEMORY.md"
-});
-```
+1. Search across all session logs using keyword matching
+2. Return the most relevant entries
+3. If no match found, tell user: "I don't have a record of that. Could you remind me?"
 
-## Automatic Memory Injection
+---
 
-System auto-reads today's and yesterday's memories at session start, injecting into `## Memory Context` section.
+## Maintenance & Cleanup
 
-**Agent Should**:
-- Naturally integrate into conversation without mentioning "according to memory..."
-- Combine memory content when responding to user
+### Token Budget Enforcement
+
+Before each write, check token count:
+- `USER.md` exceeds ~500 tokens → compress: merge related items, remove outdated entries
+- Session log exceeds ~800 tokens → summarize older sections, keep only actionable items
+
+### Weekly Archival (on Monday)
+
+1. Review session logs older than 7 days
+2. Extract any still-relevant info → merge into `USER.md`
+3. Archive or delete stale session logs
+
+---
+
+## Writing Style Rules
+
+All memory files follow these conventions:
+
+- **English only** (except proper nouns that lose meaning in translation)
+- **Dense telegraphic style**: no filler words ("You are", "You should", "The user")
+- **`**Bold**` section titles** instead of `##` headers (inside files)
+- **Comma/semicolon-joined facts** for related items
+- **One fact per line** for unrelated items
+
+**Good**: `Prefers 4-space indent; strict TypeScript; no semicolons in JS`
+**Bad**: `The user has mentioned that they prefer to use 4 spaces for indentation. They also like TypeScript.`
+
+---
+
+## Format Conventions
+
+| Type | Format | Example |
+|------|--------|---------|
+| Preference | `- Description` | `- 4-space indent; dark theme` |
+| Decision | `- **Title**: reason` | `- **SQLite over Redis**: simpler deploy, sufficient scale` |
+| Todo | `- [ ] task` | `- [ ] Fix Docker networking` |
+| Completed | `- [x] task` | `- [x] Migrated auth to JWT` |
+| Superseded | `- ~~old decision~~` | `- ~~Use Redis for caching~~` |
+
+---
 
 ## Best Practices
 
-✅ **Concise & Specific**: "Prefers 4-space indent"
-✅ **Actionable**: "Complete Docker optimization tomorrow"
-✅ **Contextual**: "Project uses MomoClaw architecture"
-
-❌ Avoid: vague, temporary, duplicate, overly long content
-
-## Proactive Trigger Scenarios
-
-| Scenario | Signal | Save Content |
-|----------|--------|--------------|
-| Decision | "Decide..."/"Use...instead of..." | Decision + reason |
-| Correction | "No"/"Should be" | Correct info |
-| Completion | "Done"/"Tests passed" | Results |
-| Preference | "I like..."/"Next time..." | Specific preference |
-
-## Tool Quick Reference
-
-| Operation | Tool | Parameters |
-|-----------|------|------------|
-| Read | `Read` | `/workspace/files/memory/YYYY-MM-DD/MEMORY.md` |
-| Search | `Grep` | `pattern`, `path: /workspace/files/memory` |
-| List | `Glob` | `pattern: /workspace/files/memory/*/MEMORY.md` |
+| Do | Don't |
+|----|-------|
+| Save specific, actionable info | Save vague or obvious info |
+| Respect token limits ruthlessly | Let files grow unbounded |
+| Overwrite stale preferences | Keep contradictory entries |
+| Search before saying "I don't know" | Guess from incomplete memory |
+| Confirm before saving uncertain info | Save assumptions as facts |
+| Skip credentials and secrets | Store any sensitive data |
