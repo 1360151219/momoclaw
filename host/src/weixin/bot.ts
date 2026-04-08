@@ -90,7 +90,7 @@ export class WeixinBot {
     let fullReply = '';
     console.log('[Weixin] start processChat:', prompt);
     try {
-      await processChat({
+      const result = await processChat({
         content: prompt,
         session: session,
         channelContext,
@@ -102,19 +102,27 @@ export class WeixinBot {
         },
       });
 
-      if (fullReply.trim()) {
-        // Get the latest context token from gateway store
-        const currentToken =
-          this.gateway.getContextToken(msg.chatId) || msg.contextToken;
+      const currentToken =
+        this.gateway.getContextToken(msg.chatId) || msg.contextToken;
+
+      if (!result.success) {
+        await this.gateway
+          .getClient()
+          .sendTextMessage(
+            msg.chatId,
+            `❌ Error: ${result.error || 'Unknown error'}`,
+            currentToken,
+          );
+      } else if (fullReply.trim()) {
         await this.gateway
           .getClient()
           .sendTextMessage(msg.chatId, fullReply.trim(), currentToken);
-
-        // Hide typing indicator after sending reply
-        await this.gateway
-          .getClient()
-          .hideTypingIndicator(msg.chatId, currentToken);
       }
+
+      // Hide typing indicator after sending reply
+      await this.gateway
+        .getClient()
+        .hideTypingIndicator(msg.chatId, currentToken);
     } catch (error: any) {
       console.error('[Weixin] Unexpected error in chat flow:', error);
       const currentToken =
