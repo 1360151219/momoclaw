@@ -12,6 +12,7 @@
     "setup": "npm run install:all && npm run build",
     "start": "cd host && node dist/index.js",
     "start:feishu": "cd host && node dist/index.js feishu",
-    "start:weixin": "cd host && node dist/index.js weixin"
+    "start:weixin": "cd host && node dist/index.js weixin",
+    "start:all": "cd host && node dist/index.js all"
   }
 }
