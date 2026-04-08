@@ -30,7 +30,7 @@ export async function startFeishuBot(
 ): Promise<void> {
   const gateway = new FeishuGateway(options.feishuConfig);
 
-  await gateway.start({
+  gateway.start({
     onStream: async (message, updater, sessionCache) => {
       const context: CommandContext = {
         chatId: message.chatId,
