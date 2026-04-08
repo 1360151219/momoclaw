@@ -70,25 +70,6 @@ async function runAgentWithSDK(
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
   }
 
-  if (process.env.DEBUG) {
-    const originContent = fs.existsSync(
-      path.join(WORKSPACE_DIR, 'debug-prompt.json'),
-    )
-      ? fs.readFileSync(path.join(WORKSPACE_DIR, 'debug-prompt.json'), 'utf-8')
-      : '[]';
-    const originData = JSON.parse(originContent || '[]');
-    fs.writeFileSync(
-      path.join(WORKSPACE_DIR, 'debug-prompt.json'),
-      JSON.stringify([
-        ...originData,
-        {
-          userInput,
-          systemPrompt: enhancedSystemPrompt,
-        },
-      ]),
-    );
-  }
-
   const queryOptions: Options = {
     cwd: WORKSPACE_DIR,
     ...(session.claudeSessionId ? { resume: session.claudeSessionId } : {}),
@@ -137,6 +118,8 @@ async function runAgentWithSDK(
   };
 
   let claudeSessionId = session.claudeSessionId;
+
+  logger(`Start query`, userInput);
 
   // 使用 Claude Agent SDK
   for await (const message of query({
@@ -259,12 +242,6 @@ async function runAgentWithSDK(
 async function main(): Promise<void> {
   // 确保输出目录存在
   const outputDir = path.dirname(OUTPUT_FILE);
-  logger(`start check output directory1`, {
-    outputDir: outputDir,
-  });
-  logger(`start check output directory2`, {
-    isExist: fs.existsSync(outputDir),
-  });
   try {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });

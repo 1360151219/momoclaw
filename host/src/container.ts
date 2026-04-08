@@ -169,8 +169,9 @@ class ContainerManager {
     // Ensure .claude.json exists before mounting to avoid Docker creating it as a directory
     const claudeJsonPath = join(claudeDir, '.claude.json');
     if (!existsSync(claudeJsonPath)) {
-      writeFileSync(claudeJsonPath, '{}', { mode: 0o666 });
+      writeFileSync(claudeJsonPath, '{}');
     }
+    chmodSync(claudeJsonPath, 0o666);
 
     const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
     const containerName = `momoclaw-${sanitizedSessionId}`;
