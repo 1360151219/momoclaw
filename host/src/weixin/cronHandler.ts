@@ -40,16 +40,20 @@ export class WeixinCronHandler implements ChannelHandler {
 
         // Format as scheduled task result
         const formatted = this.formatTaskResult(content);
-        
-        // Ensure gateway has a valid client token by starting it briefly if needed
-        // Note: In a real long-running scenario, the bot is already started and has the token.
-        // If it's a standalone cron process, it might need to get token.
+
         const client = this.gateway.getClient();
-        
+
+        // Ensure client has a valid token by loading from local file
+        // The bot process should have already saved the token when it logged in
+        const hasToken = client.loadLocalToken();
+        if (!hasToken) {
+            throw new Error('Weixin token not available. Please ensure the bot is logged in.');
+        }
+
         // We use an empty context token here as this is an active push, not a reply
         // Weixin might require a valid context token, but for active pushes we might need to rely on the latest stored one
         const currentToken = this.gateway.getContextToken(chatId) || '';
-        
+
         await client.sendTextMessage(chatId, formatted, currentToken);
     }
 
