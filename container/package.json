@@ -10,7 +10,6 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.34",
     "@modelcontextprotocol/sdk": "^1.0.4",
-    "@modelcontextprotocol/server-github": "latest",
     "@wangshunnn/bilibili-mcp-server": "latest"
   },
   "devDependencies": {

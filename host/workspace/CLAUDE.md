@@ -42,8 +42,13 @@ Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory reco
 
 ## Session End Protocol
 
-Before the session ends, call the `memory` skill to persist important information if necessary:
+When the system sends the `[System] idle-sop` directive, invoke the `idle-sop` skill to execute the full three-phase shutdown sequence:
 
-- Memories and lessons you've learned are up-to-date with the latest context.
+1. **Summarize** — Build a structured summary of the session.
+2. **Memory** — Persist valuable information via the `memory` skill (preferences, decisions, new knowledge, unfinished todos).
+3. **Schedule** — Evaluate unfinished work and create autonomous scheduled tasks for items the Agent can complete independently.
+
+This ensures:
 - Important details are not forgotten across sessions.
+- Unfinished work can continue autonomously via scheduled tasks.
 - Outdated or irrelevant information is cleaned up.

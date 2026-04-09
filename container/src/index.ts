@@ -108,10 +108,10 @@ async function runAgentWithSDK(
         args: ['/app/node_modules/.bin/bilibili-mcp-server'],
       },
       github: {
-        command: 'node',
-        args: ['/app/node_modules/.bin/mcp-server-github'],
-        env: {
-          GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
+        type: 'http',
+        url: 'https://api.githubcopilot.com/mcp/',
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN || ''}`,
         },
       },
     },

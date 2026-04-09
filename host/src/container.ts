@@ -98,11 +98,11 @@ class ContainerManager {
       const apiConfig = getApiConfig(config, session.model || undefined);
 
       // 我们不通过 processChat，而是直接调用 agentRunner.run，
-      // 这样这条指令和回复就不会污染数据库中的 user/assistant 聊天记录
+      // 这样这条指令和回复就不会污染数据库中的 user/assistant 聊天记录。
       const payload: PromptPayload = {
         session,
         messages: [],
-        userInput: `[System] 当前会话闲置超时，即将被系统回收。请立即启用你的 memory skill（记忆技能），自行评估本次会话的上下文：\n1. 判断是否有重要的新知识、未解决的待办事项、环境事实或错误解决经验。\n2. 如果有，请直接使用该 skill 将这些高价值信息进行沉淀和保存。\n3. 如果没有需要记录的内容，请直接结束。\n\n完成上述评估或操作后，请简要回复“已完成”。\n\n注意：这只是一条系统后台静默指令，请直接执行，不要有任何多余的寒暄。`,
+        userInput: `[System] idle-sop — 当前会话闲置超时，即将被系统回收。请立即启用你的 idle-sop skill。`,
         apiConfig,
       };
 
