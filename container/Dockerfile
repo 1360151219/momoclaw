@@ -40,8 +40,11 @@ RUN npm ci --include=dev --registry=https://registry.npmmirror.com
 COPY --chown=node:node src/ ./src/
 RUN npm run build
 
-# 创建workspace目录
+# 创建workspace目录及关键子目录，确保权限宽松以兼容不同 UID 的宿主机挂载
 RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp \
+    /workspace/files/memory /workspace/files/memory/sessions \
+    /workspace/files/temp /workspace/files/temp/feishu-images /workspace/files/temp/downloads \
+    /workspace/files/credentials \
     && chown -R node:node /workspace \
     && chmod -R 777 /workspace
 

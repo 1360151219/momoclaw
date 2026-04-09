@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 import type {
   WeixinConfig,
   GetUpdatesResponse,
@@ -38,10 +39,7 @@ export class WeixinClient {
 
     // Save token to local file
     try {
-      const dir = path.dirname(TOKEN_FILE_PATH);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      ensureDirWithPerms(path.dirname(TOKEN_FILE_PATH));
       fs.writeFileSync(
         TOKEN_FILE_PATH,
         JSON.stringify(tokenInfo, null, 2),

@@ -1,5 +1,12 @@
 import { spawn } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, rmSync, chmodSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  chmodSync,
+  readdirSync,
+} from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
@@ -146,6 +153,30 @@ class ContainerManager {
     clearInterval(this.cleanupInterval);
   }
 
+  /**
+   * 递归设置目录和文件权限，确保容器内不同 UID 的用户也能读写
+   */
+  private chmodRecursive(dirPath: string): void {
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(dirPath, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            chmodSync(fullPath, 0o777);
+            this.chmodRecursive(fullPath);
+          } else {
+            chmodSync(fullPath, 0o666);
+          }
+        } catch {
+          // 跳过无法修改权限的文件
+        }
+      }
+    } catch {
+      // 跳过无法读取的目录
+    }
+  }
+
   public async getOrStartContainer(
     sessionId: string,
   ): Promise<ActiveContainer> {
@@ -165,6 +196,31 @@ class ContainerManager {
     [workspacePath, tempDir, sessionDir, claudeDir].forEach((dir) =>
       ensureDirWithPerms(dir),
     );
+
+    // 确保 workspace 下的关键子目录存在且有正确权限
+    // 避免容器内 node 用户因 UID 不匹配导致 Permission denied
+    const criticalSubDirs = [
+      'memory',
+      'memory/sessions',
+      'temp',
+      'credentials',
+      'temp/feishu-images',
+      'temp/downloads',
+    ];
+    for (const sub of criticalSubDirs) {
+      ensureDirWithPerms(join(workspacePath, sub));
+    }
+
+    // 递归修正 workspace 目录下所有文件和文件夹的权限
+    // 解决 Linux 服务器上宿主机 UID 与容器 node 用户 UID 不匹配的问题
+    try {
+      this.chmodRecursive(workspacePath);
+    } catch (err) {
+      console.warn(
+        '[ContainerManager] 递归修正 workspace 权限时出现警告:',
+        err,
+      );
+    }
 
     // Ensure .claude.json exists before mounting to avoid Docker creating it as a directory
     const claudeJsonPath = join(claudeDir, '.claude.json');

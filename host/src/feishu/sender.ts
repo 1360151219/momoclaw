@@ -6,6 +6,7 @@
 import type { Client } from '@larksuiteoapi/node-sdk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 import { logger } from './logger.js';
 import type { FeishuResponse, FeishuConfig } from './types.js';
 import { getHttpClient, toCredentials, type BotCredentials } from './client.js';
@@ -159,9 +160,7 @@ export class FeishuSender {
             'temp',
             'downloads',
           );
-          if (!fs.existsSync(downloadPath)) {
-            fs.mkdirSync(downloadPath, { recursive: true });
-          }
+          ensureDirWithPerms(downloadPath);
 
           const localPath = path.join(downloadPath, imageName);
           fs.writeFileSync(localPath, Buffer.from(imageBuffer));

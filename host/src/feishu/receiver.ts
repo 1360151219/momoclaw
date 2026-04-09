@@ -4,8 +4,9 @@
  * Works with @larksuiteoapi/node-sdk event format
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 import { logger } from './logger.js';
 import type { FeishuConfig, FeishuMessage, ImageAttachment } from './types.js';
 import type { RawMessageEvent } from './client.js';
@@ -60,8 +61,7 @@ class MessageDeduplicator {
 
     private persist(): void {
         try {
-            const dir = dirname(DEDUP_FILE);
-            if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+            ensureDirWithPerms(dirname(DEDUP_FILE));
             const data = Object.fromEntries(this.seen);
             writeFileSync(DEDUP_FILE, JSON.stringify(data));
         } catch {

@@ -5,6 +5,7 @@ import { extractImageDownloadParams, decryptAesEcb } from './crypto.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 
 export class WeixinGateway extends EventEmitter {
   private client: WeixinClient;
@@ -20,9 +21,7 @@ export class WeixinGateway extends EventEmitter {
     this.cdnBaseUrl = config.cdnBaseUrl;
     // ensure workspace temp dir exists for images
     this.workspaceDir = path.resolve(process.cwd(), './workspace/temp');
-    if (!fs.existsSync(this.workspaceDir)) {
-      fs.mkdirSync(this.workspaceDir, { recursive: true });
-    }
+    ensureDirWithPerms(this.workspaceDir);
   }
 
   public getClient() {
