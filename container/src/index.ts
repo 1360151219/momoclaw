@@ -13,12 +13,13 @@ import {
   ToolCall,
   ToolEvent,
 } from './types.js';
-import { createArticleFetcherMcpServer } from './mcp/index.js';
+import { createArticleFetcherMcpServer, createBrowserMcpServer } from './mcp/index.js';
 import { logger } from './debug.js';
 import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 
 // 创建 MCP 服务器
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
+const browserMcpServer = createBrowserMcpServer();
 
 async function readInput(): Promise<PromptPayload> {
   if (!fs.existsSync(INPUT_FILE)) {
@@ -88,6 +89,7 @@ async function runAgentWithSDK(
     stderr: (data: any) => process.stderr.write(data),
     mcpServers: {
       momoclaw_mcp: articleFetcherMcpServer,
+      browser_mcp: browserMcpServer,
       ...(process.env.HOST_MCP_URL
         ? {
             host_mcp: {

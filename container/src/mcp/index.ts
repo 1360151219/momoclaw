@@ -4,3 +4,4 @@
  */
 
 export { createArticleFetcherMcpServer, formatArticle } from './server.js';
+export { createBrowserMcpServer } from './browser.js';
