@@ -16,13 +16,14 @@ RUN apk update && apk add \
     # Keep this minimal for 2GB RAM servers:
     # - chromium: browser binary
     # - nss/ca-certificates: TLS/HTTPS support
-    # - freetype/harfbuzz/ttf-freefont: basic font rendering for screenshots
+    # - freetype/harfbuzz: basic font rendering
+    # - font-noto-cjk: High-quality Chinese/Japanese/Korean font rendering
     chromium \
     nss \
     ca-certificates \
     freetype \
     harfbuzz \
-    ttf-freefont
+    font-noto-cjk
 
 # Set CC to clang for uv managed python
 ENV CC=clang

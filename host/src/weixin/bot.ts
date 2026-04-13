@@ -34,6 +34,10 @@ function resolveContainerPath(filePath: string): string {
     const relativePath = filePath.slice(CONTAINER_WORKSPACE_PREFIX.length);
     return path.join(config.workspaceDir, relativePath);
   }
+  // 如果是相对路径
+  if (!filePath.startsWith('/')) {
+    return path.resolve(config.workspaceDir, filePath);
+  }
   return filePath;
 }
 
