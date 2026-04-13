@@ -14,6 +14,33 @@ import { config } from '../config.js';
 
 const log = logger('feishu:sender');
 
+/**
+ * 容器内的工作目录前缀（Docker 挂载点）
+ * 对应 docker run 中: -v ${workspacePath}:/workspace/files:rw
+ */
+const CONTAINER_WORKSPACE_PREFIX = '/workspace/files';
+
+/**
+ * 将容器内路径转换为宿主机路径
+ *
+ * 背景：AI Agent 在 Docker 容器内运行，它生成的图片/文件路径是容器内路径
+ * （如 /workspace/files/temp/downloads/xxx.png），但 Host 端在处理这些路径
+ * 时需要用宿主机的实际路径（如 ./workspace/temp/downloads/xxx.png）才能读取文件。
+ *
+ * 映射关系（来自 container.ts 中的 docker run 参数）：
+ *   容器内 /workspace/files  ←→  宿主机 config.workspaceDir
+ *
+ * @param filePath - 可能是容器内路径，也可能已经是宿主机路径
+ * @returns 转换后的宿主机路径
+ */
+function resolveContainerPath(filePath: string): string {
+  if (filePath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+    const relativePath = filePath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    return path.join(config.workspaceDir, relativePath);
+  }
+  return filePath;
+}
+
 // Card element IDs for streaming updates
 const STREAM_EL = {
   mainMd: 'main_content',
@@ -177,23 +204,24 @@ export class FeishuSender {
       }
 
       // 如果路径存在或者是本地文件 (now including downloaded ones)
-      if (
-        imagePath &&
-        !imagePath.startsWith('http') &&
-        fs.existsSync(imagePath)
-      ) {
-        const imageKey = await this.uploadImage(imagePath);
-        if (imageKey) {
-          processedText = processedText.replace(
-            originalString,
-            `![image](${imageKey})`,
-          );
+      // 注意：先将容器内路径转换为宿主机路径，否则 fs.existsSync 永远找不到文件
+      if (imagePath && !imagePath.startsWith('http')) {
+        const hostPath = resolveContainerPath(imagePath);
+        if (fs.existsSync(hostPath)) {
+          const imageKey = await this.uploadImage(hostPath);
+          if (imageKey) {
+            processedText = processedText.replace(
+              originalString,
+              `![image](${imageKey})`,
+            );
+          } else {
+            processedText = processedText.replace(originalString, '');
+          }
         } else {
-          // Fallback if upload fails
+          log.warn(`Image not found after path resolve: ${imagePath} -> ${hostPath}`);
           processedText = processedText.replace(originalString, '');
         }
       } else {
-        // If it's still not a valid local path at this point, remove it or convert to link
         processedText = processedText.replace(originalString, '');
       }
     }
@@ -205,16 +233,15 @@ export class FeishuSender {
 
     for (const match of fileMatches) {
       const filePath = match[1];
-      if (
-        filePath &&
-        !filePath.startsWith('http') &&
-        fs.existsSync(filePath) &&
-        !seenFiles.has(filePath)
-      ) {
-        seenFiles.add(filePath);
-        const fileKey = await this.uploadFile(filePath);
-        if (fileKey) {
-          await this.sendFileMessage(chatId, fileKey, options);
+      if (filePath && !filePath.startsWith('http') && !seenFiles.has(filePath)) {
+        // 同样需要将容器内路径转换为宿主机路径
+        const hostFilePath = resolveContainerPath(filePath);
+        if (fs.existsSync(hostFilePath)) {
+          seenFiles.add(filePath);
+          const fileKey = await this.uploadFile(hostFilePath);
+          if (fileKey) {
+            await this.sendFileMessage(chatId, fileKey, options);
+          }
         }
       }
     }

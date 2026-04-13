@@ -9,7 +9,16 @@ import type {
   TypingStatus,
   BotTokenInfo,
   MessageItem,
+  GetUploadUrlResponse,
+  UploadMediaResult,
 } from './types.js';
+import { UploadMediaType, MessageItemType } from './types.js';
+import {
+  generateAesKey,
+  encryptAesEcb,
+  encodeAesKeyHex,
+  encodeAesKeyBase64,
+} from './crypto.js';
 
 const WECHAT_QR_BOT_TYPE = 3;
 const TOKEN_FILE_PATH = path.resolve(
@@ -334,5 +343,186 @@ export class WeixinClient {
     } catch (e) {
       console.error('[Weixin] Failed to hide typing indicator:', e);
     }
+  }
+
+  /**
+   * 向微信服务器请求文件上传地址
+   *
+   * 这是微信 CDN 上传的第一步：
+   *   1. 调用 getuploadurl 获取上传地址  ← 这个方法
+   *   2. 将加密后的文件 POST 到 CDN
+   *   3. 获取返回的 encrypt_query_param 用于构建消息
+   */
+  public async getUploadUrl(params: {
+    filekey: string;
+    media_type: UploadMediaType;
+    to_user_id: string;
+    rawsize: number;
+    rawfilemd5: string;
+    filesize: number;
+    no_need_thumb?: boolean;
+    aeskey?: string;
+  }): Promise<GetUploadUrlResponse> {
+    return this.request('/ilink/bot/getuploadurl', params, 'POST');
+  }
+
+  /**
+   * 上传本地文件到微信 CDN
+   *
+   * 完整流程：
+   *   1. 读取文件 → 生成 AES key → 加密文件内容
+   *   2. 调用 getuploadurl 获取上传地址
+   *   3. 将加密数据 POST 到 CDN 上传地址
+   *   4. 从响应头获取 x-encrypted-param，构建 CDNMedia 对象
+   *
+   * @param filePath - 本地文件路径（宿主机路径）
+   * @param userId - 目标用户 ID
+   * @param mediaType - 媒体类型（IMAGE=1, VIDEO=2, FILE=3, VOICE=4）
+   * @returns CDNMedia 引用，可用于构建图片/文件消息
+   */
+  public async uploadMedia(
+    filePath: string,
+    userId: string,
+    mediaType: UploadMediaType = UploadMediaType.IMAGE,
+  ): Promise<UploadMediaResult> {
+    const fileData = fs.readFileSync(filePath);
+
+    // 1. 生成 AES key 并加密文件
+    const aesKey = generateAesKey();
+    const ciphertext = encryptAesEcb(fileData, aesKey);
+    const filekey = crypto.randomBytes(16).toString('hex');
+    const rawMd5 = crypto.createHash('md5').update(fileData).digest('hex');
+
+    console.log('[Weixin] Uploading media:', {
+      rawSize: fileData.length,
+      encryptedSize: ciphertext.length,
+      filekey,
+      mediaType,
+    });
+
+    // 2. 获取上传地址
+    const uploadParams = await this.getUploadUrl({
+      filekey,
+      media_type: mediaType,
+      to_user_id: userId,
+      rawsize: fileData.length,
+      rawfilemd5: rawMd5,
+      filesize: ciphertext.length,
+      no_need_thumb: true,
+      aeskey: encodeAesKeyHex(aesKey),
+    });
+
+    // 构建上传 URL：优先使用 upload_full_url，回退到手动拼接
+    const cdnBaseUrl = this.config.cdnBaseUrl.replace(/\/$/, '');
+    const uploadUrl =
+      uploadParams.upload_full_url?.trim() ||
+      `${cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParams.upload_param)}&filekey=${encodeURIComponent(filekey)}`;
+
+    // 3. 将加密数据 POST 到 CDN（最多重试 3 次）
+    let encryptQueryParam: string | undefined;
+    const MAX_RETRIES = 3;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: new Uint8Array(ciphertext),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.status >= 400 && response.status < 500) {
+          const errMsg =
+            response.headers.get('x-error-message') ??
+            `HTTP ${response.status}`;
+          throw new Error(
+            `CDN upload client error ${response.status}: ${errMsg}`,
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(`CDN upload server error: HTTP ${response.status}`);
+        }
+
+        encryptQueryParam =
+          response.headers.get('x-encrypted-param') ?? undefined;
+        if (!encryptQueryParam) {
+          throw new Error(
+            'CDN upload response missing x-encrypted-param header',
+          );
+        }
+
+        console.log(`[Weixin] CDN upload success, attempt=${attempt}`);
+        break;
+      } catch (err: any) {
+        // 4xx 错误不重试
+        if (err.message?.includes('client error')) throw err;
+        if (attempt < MAX_RETRIES) {
+          console.warn(
+            `[Weixin] CDN upload attempt ${attempt} failed, retrying...`,
+            err.message,
+          );
+        } else {
+          throw new Error(
+            `CDN upload failed after ${MAX_RETRIES} attempts: ${err.message}`,
+          );
+        }
+      }
+    }
+
+    return {
+      media: {
+        encrypt_query_param: encryptQueryParam!,
+        aes_key: encodeAesKeyBase64(aesKey),
+        encrypt_type: 1,
+      },
+      aesKey,
+      encryptedFileSize: ciphertext.length,
+    };
+  }
+
+  /**
+   * 发送图片消息给用户
+   *
+   * 高层方法：自动完成 上传 → 构建消息 → 发送 的全部流程
+   *
+   * @param toUserId - 目标用户 ID
+   * @param filePath - 本地图片文件路径
+   * @param contextToken - 会话上下文 token（从用户消息中获取）
+   */
+  public async sendImageMessage(
+    toUserId: string,
+    filePath: string,
+    contextToken?: string,
+  ): Promise<any> {
+    // 1. 上传图片到 CDN
+    const uploadResult = await this.uploadMedia(
+      filePath,
+      toUserId,
+      UploadMediaType.IMAGE,
+    );
+
+    // 2. 获取原始文件大小作为 mid_size
+    const stat = fs.statSync(filePath);
+
+    // 3. 构建并发送图片消息
+    return this.sendMessage(
+      toUserId,
+      [
+        {
+          type: MessageItemType.IMAGE,
+          image_item: {
+            media: uploadResult.media,
+            mid_size: stat.size,
+          },
+        },
+      ],
+      contextToken,
+    );
   }
 }
