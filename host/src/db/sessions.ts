@@ -1,5 +1,6 @@
 import { Session } from '../types.js';
 import { getDb } from './connection.js';
+import { getChannelMapping } from './channels/channelMappings.js';
 
 /**
  * Initialize the sessions table
@@ -159,6 +160,34 @@ export function updateSessionSummary(id: string, summary: string): boolean {
     .prepare('UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?')
     .run(summary, Date.now(), id);
   return result.changes > 0;
+}
+
+/**
+ * 通过渠道信息查找当前活跃的 session
+ *
+ * 查找策略：
+ * - terminal: 查全局活跃 session（is_active=1）
+ * - feishu / weixin / 其他渠道: 统一查 channel_mappings 表
+ *
+ * 如果找不到活跃 session，返回 undefined，调用方应兜底使用 task 原始的 sessionId
+ */
+export function getActiveSessionForChannel(
+  channelType: string,
+  channelId: string,
+): Session | undefined {
+  if (channelType === 'terminal') {
+    // 终端场景：查全局活跃 session（/new 会把新 session 标记为 is_active=1）
+    return getActiveSession();
+  }
+
+  // 飞书、微信等渠道：统一查 channel_mappings 表
+  const mapping = getChannelMapping(channelType, channelId);
+  if (mapping) {
+    return getSession(mapping.sessionId);
+  }
+
+  // 找不到映射：返回 undefined
+  return undefined;
 }
 
 export function updateSession(

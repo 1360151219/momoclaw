@@ -6,6 +6,7 @@ export {
   createSession,
   getSession,
   getActiveSession,
+  getActiveSessionForChannel,
   listSessions,
   switchSession,
   deleteSession,
@@ -28,6 +29,7 @@ export {
   createScheduledTask,
   getScheduledTask,
   listScheduledTasks,
+  listTasksByChannel,
   getDueTasks,
   updateTaskAfterRun,
   updateTaskStatus,
@@ -41,12 +43,12 @@ export {
   getDatabaseStats,
 } from './tasks.js';
 
-// Feishu channel-specific session mappings
+// 通用渠道映射（飞书/微信/未来渠道统一使用）
 export {
-  getMapping,
-  setMapping,
-  deleteMapping,
-  listMappings,
-  getChatBySession,
-  type FeishuMapping,
-} from './channels/feishuMappings.js';
+  getChannelMapping,
+  setChannelMapping,
+  deleteChannelMapping,
+  listChannelMappings,
+  getChannelByChatSession,
+  type ChannelMapping,
+} from './channels/channelMappings.js';

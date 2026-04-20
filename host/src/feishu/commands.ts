@@ -8,18 +8,16 @@ import type { FeishuMessage, FeishuResponse } from './types.js';
 import {
   getSession,
   createSession,
-  listSessions,
-  clearSessionMessages,
-  getSessionMessages,
   deleteSession,
-  setMapping,
-  deleteMapping,
-  getMapping,
+  getChannelMapping,
+  setChannelMapping,
+  deleteChannelMapping,
 } from '../db/index.js';
 import type { Session } from '../types.js';
 import { logger } from './logger.js';
 
 const log = logger('feishu:commands');
+const CHANNEL_TYPE = 'feishu';
 
 import {
   executeCommand as coreExecuteCommand,
@@ -57,7 +55,7 @@ export async function executeCommand(
 
       // Update cache and persistent mapping
       context.sessionCache.set(message.chatId, newSessionId);
-      setMapping(message.chatId, newSessionId);
+      setChannelMapping(CHANNEL_TYPE, message.chatId, newSessionId);
     },
   };
 
@@ -87,12 +85,12 @@ export function getOrCreateSession(
     }
     // Cache stale, remove it and clean up DB mapping
     context.sessionCache.delete(chatId);
-    deleteMapping(chatId);
+    deleteChannelMapping(CHANNEL_TYPE, chatId);
     log.debug(`Cleaned up stale cache and mapping for chat ${chatId}`);
   }
 
   // 2. Check persistent mapping storage
-  const mapping = getMapping(chatId);
+  const mapping = getChannelMapping(CHANNEL_TYPE, chatId);
   if (mapping) {
     const session = getSession(mapping.sessionId);
     if (session) {
@@ -102,7 +100,7 @@ export function getOrCreateSession(
       return session;
     }
     // Mapping stale, clean it up
-    deleteMapping(chatId);
+    deleteChannelMapping(CHANNEL_TYPE, chatId);
     log.debug(`Cleaned up stale DB mapping for chat ${chatId}`);
   }
 
@@ -116,7 +114,7 @@ export function getOrCreateSession(
 
   // Update both cache and persistent storage
   context.sessionCache.set(chatId, sessionId);
-  setMapping(chatId, sessionId);
+  setChannelMapping(CHANNEL_TYPE, chatId, sessionId);
 
   log.info(`Created new session ${sessionId} for chat ${chatId}`);
   return session;
@@ -134,6 +132,6 @@ export function getCachedSessionId(
   if (cached) return cached;
 
   // Fallback to DB
-  const mapping = getMapping(chatId);
+  const mapping = getChannelMapping(CHANNEL_TYPE, chatId);
   return mapping?.sessionId;
 }

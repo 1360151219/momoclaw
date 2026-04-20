@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   createScheduledTask,
   listScheduledTasks,
+  listTasksByChannel,
   updateTaskStatus,
   deleteScheduledTask,
   getTaskRunLogs,
@@ -88,17 +89,19 @@ function createSessionMcpServer(channelContext: any): McpServer {
   // 2. list_scheduled_tasks
   server.tool(
     'list_scheduled_tasks',
-    '【查询定时任务列表】当用户询问"我有几个定时任务"、"帮我看看我有哪些定时任务"时，必须使用此工具获取当前已创建的任务列表。',
-    {
-      sessionId: z
-        .string()
-        .optional()
-        .describe('关联的会话ID（可以不传，不传则查询当前会话）'),
-    },
-    async ({ sessionId }) => {
+    `【查询定时任务列表】当用户询问"我有几个定时任务"、"帮我看看我有哪些定时任务"时，必须使用此工具获取已创建的任务列表。`,
+    {},
+    async () => {
       try {
-        const actualSessionId = sessionId || channelContext.sessionId;
-        const tasks = listScheduledTasks(actualSessionId);
+        // 优先按渠道查询：同一渠道（如同一个飞书群、同一个终端）下的所有任务
+        // 这样无论用户 /new 切换了多少次会话，都能看到自己的任务
+        let tasks;
+        if (channelContext.channelType && channelContext.channelId) {
+          tasks = listTasksByChannel(channelContext.channelType, channelContext.channelId);
+        } else {
+          // 兜底：如果没有渠道信息，按 sessionId 查询
+          tasks = listScheduledTasks(channelContext.sessionId);
+        }
         return {
           content: [
             {

@@ -1,7 +1,14 @@
 import { WeixinGateway } from './gateway.js';
 import type { WeixinConfig, UnifiedMessage } from './types.js';
 import { processChat } from '../core/chatService.js';
-import { getSession, createSession } from '../db/index.js';
+import {
+  getSession,
+  createSession,
+  deleteSession,
+  getChannelMapping,
+  setChannelMapping,
+  deleteChannelMapping,
+} from '../db/index.js';
 import type { Session, ChannelContext } from '../types.js';
 import { config } from '../config.js';
 import { parseCommand } from '../utils/command.js';
@@ -45,8 +52,12 @@ export interface WeixinBotOptions {
   weixinConfig: WeixinConfig;
 }
 
+const CHANNEL_TYPE = 'weixin';
+
 export class WeixinBot {
   private gateway: WeixinGateway;
+  /** 内存缓存：chatId → sessionId，减少 DB 查询（与飞书保持一致） */
+  private sessionCache = new Map<string, string>();
 
   constructor(options: WeixinBotOptions) {
     this.gateway = new WeixinGateway(options.weixinConfig);
@@ -155,16 +166,49 @@ export class WeixinBot {
     await this.gateway.start();
   }
 
+  /**
+   * 获取或创建微信聊天对应的 session
+   *
+   * 查找策略（与飞书保持一致）：
+   * 1. 先查内存缓存（O(1)）
+   * 2. 再查 channel_mappings 持久化映射表
+   * 3. 都没有则创建新 session 并写入映射
+   */
   private getOrCreateSession(chatId: string): Session {
-    const sessionId = `wx_${chatId}`;
-    let session = getSession(sessionId);
-    if (!session) {
-      session = createSession(
-        sessionId,
-        `Weixin Chat ${chatId}`,
-        config.defaultModel,
-      );
+    // 1. 查内存缓存
+    const cachedSessionId = this.sessionCache.get(chatId);
+    if (cachedSessionId) {
+      const session = getSession(cachedSessionId);
+      if (session) return session;
+      // 缓存失效，清理
+      this.sessionCache.delete(chatId);
+      deleteChannelMapping(CHANNEL_TYPE, chatId);
     }
+
+    // 2. 查持久化映射表
+    const mapping = getChannelMapping(CHANNEL_TYPE, chatId);
+    if (mapping) {
+      const session = getSession(mapping.sessionId);
+      if (session) {
+        this.sessionCache.set(chatId, session.id);
+        return session;
+      }
+      // 映射失效，清理
+      deleteChannelMapping(CHANNEL_TYPE, chatId);
+    }
+
+    // 3. 创建新 session（sessionId 带时间戳，支持 /new 切换）
+    const sessionId = `weixin_${chatId}_${Date.now()}`;
+    const session = createSession(
+      sessionId,
+      `Weixin Chat ${chatId.slice(0, 8)}`,
+      config.defaultModel,
+    );
+
+    // 同时更新缓存和持久化映射
+    this.sessionCache.set(chatId, sessionId);
+    setChannelMapping(CHANNEL_TYPE, chatId, sessionId);
+
     return session;
   }
 
@@ -172,7 +216,7 @@ export class WeixinBot {
     console.log('[Weixin] Received message Before Handle:', msg);
     const session = this.getOrCreateSession(msg.chatId);
 
-    // Support commands
+    // 支持命令（/new, /help, /clear 等）
     if (msg.text) {
       const cmd = parseCommand(msg.text);
       if (cmd) {
@@ -180,6 +224,15 @@ export class WeixinBot {
           channelId: msg.chatId,
           channelType: 'weixin',
           session: session,
+          // /new 回调：删除旧 session，更新映射指向新 session（与飞书一致）
+          onNewSession: (oldSessionId, newSessionId) => {
+            const oldId = this.sessionCache.get(msg.chatId) || oldSessionId;
+            if (oldId) {
+              deleteSession(oldId);
+            }
+            this.sessionCache.set(msg.chatId, newSessionId);
+            setChannelMapping(CHANNEL_TYPE, msg.chatId, newSessionId);
+          },
         };
         const response = await coreExecuteCommand(cmd.command, baseContext);
 

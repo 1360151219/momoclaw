@@ -13,7 +13,9 @@ import {
   getDueTasks,
   updateTaskAfterRun,
   addTaskRunLog,
+  getTaskRunLogs,
   getSession,
+  getActiveSessionForChannel,
   addMessage,
 } from '../db/index.js';
 import { runContainerAgent } from '../container.js';
@@ -117,17 +119,50 @@ export class CronService {
 
   /**
    * 执行单个任务
+   *
+   * 关键设计：动态获取用户当前活跃的 session，而非永远使用创建时的旧 session。
+   * 这样用户 /new 切换会话后，任务结果会写入新会话，用户可以基于结果继续对话。
+   * 同时注入上次执行结果摘要到 prompt 中，弥补切换 session 带来的上下文断裂。
    */
   private async executeTask(task: ScheduledTask): Promise<void> {
     console.log(`[CronService] Executing task: ${task.id}`);
 
-    const session = getSession(task.sessionId);
+    // 优先通过渠道信息查找用户当前活跃的 session，找不到则兜底用任务创建时的 session
+    let session =
+      task.channelType && task.channelId
+        ? getActiveSessionForChannel(task.channelType, task.channelId)
+        : undefined;
+
+    if (!session) {
+      session = getSession(task.sessionId);
+    }
+
     if (!session) {
       throw new Error(`Session not found: ${task.sessionId}`);
     }
 
-    // 构建执行提示词
-    const executionPrompt = `[Scheduled Task]\n${task.prompt}`;
+    // 构建定时任务执行提示词
+    // 明确告知 AI 这是独立执行的定时任务，应忽略之前的对话上下文，专注于当前指令
+    let executionPrompt = [
+      '[Scheduled Task]',
+      '这是一个定时触发的独立任务，请忽略之前的对话上下文，专注执行以下指令。',
+      `任务ID: ${task.id} | 已执行次数: ${task.runCount}`,
+    ].join('\n');
+
+    // 注入上次执行结果摘要，帮助 AI 了解任务的历史执行情况（如对比变化、避免重复等）
+    if (task.runCount > 0) {
+      try {
+        const lastLogs = getTaskRunLogs(task.id, 1);
+        if (lastLogs.length > 0 && lastLogs[0].success && lastLogs[0].output) {
+          const summary = lastLogs[0].output.slice(0, 500);
+          executionPrompt += `\n[上次执行结果摘要]: ${summary}`;
+        }
+      } catch {
+        // 获取日志失败不影响任务执行
+      }
+    }
+
+    executionPrompt += `\n\n[执行指令]: ${task.prompt}`;
 
     // 构建 payload - 包含 claudeSessionId 以便容器内的 Claude Agent SDK 使用 resume 机制恢复历史上下文
     const payload: PromptPayload = {
@@ -139,6 +174,9 @@ export class CronService {
       userInput: executionPrompt,
       apiConfig: getApiConfig(config, session.model || undefined),
     };
+
+    // 记录实际使用的 sessionId，用于后续写入消息
+    const activeSessionId = session.id;
 
     let output = '';
     let error: string | undefined;
@@ -155,10 +193,10 @@ export class CronService {
         output = output || result.content;
         toolCalls = result.toolCalls;
 
-        // 只有在任务真正执行成功后，才把用户的触发提示词和 AI 的回复一起存入数据库
-        addMessage(task.sessionId, 'user', executionPrompt);
-        // 保存助手回复
-        addMessage(task.sessionId, 'assistant', output, toolCalls);
+        // 将消息写入当前活跃的 session（而非任务创建时的旧 session）
+        // 这样用户在新会话中可以基于任务结果继续对话
+        addMessage(activeSessionId, 'user', executionPrompt);
+        addMessage(activeSessionId, 'assistant', output, toolCalls);
       } else {
         error = result.error || 'Unknown error';
         output = result.content;

@@ -20,7 +20,7 @@ import {
   toCredentials,
 } from './client.js';
 import { parseMessage } from './receiver.js';
-import { listMappings } from '../db/index.js';
+import { listChannelMappings } from '../db/index.js';
 import { executeCommand, type CommandContext } from './commands.js';
 import { parseCommand } from '../utils/command.js';
 
@@ -62,7 +62,7 @@ export class FeishuGateway {
    */
   private warmupCache(): void {
     try {
-      const mappings = listMappings();
+      const mappings = listChannelMappings('feishu');
       for (const mapping of mappings) {
         this.sessionCache.set(mapping.chatId, mapping.sessionId);
       }
