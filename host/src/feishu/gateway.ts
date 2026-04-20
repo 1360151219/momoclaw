@@ -4,7 +4,7 @@
  */
 
 import type * as Lark from '@larksuiteoapi/node-sdk';
-import { FeishuSender, STREAM_EL } from './sender.js';
+import { FeishuSender, STREAM_EL, type CardOpResult } from './sender.js';
 import { logger } from './logger.js';
 import type {
   FeishuConfig,
@@ -167,7 +167,7 @@ export class FeishuGateway {
     if (!message) return;
 
     log.info(
-      `Message from ${message.senderName || message.senderId} in ${message.chatType}`,
+      `Message from ${message.senderName || message.senderId} in ${message.chatType}: ${message.content}`,
     );
 
     // Add processing reaction
@@ -258,16 +258,20 @@ export class FeishuGateway {
     let mainText = '';
     let thinkingText = '';
     let hasThinkingContent = false;
+    let cardStreamingBroken = false;
+    let fallbackReplySent = false;
     // Queue to ensure sequential updates with correct sequence numbers
     const updateQueue: Array<() => Promise<void>> = [];
     let isProcessing = false;
 
-    const enqueueUpdate = (updateFn: () => Promise<void>): Promise<void> => {
+    const nextSequence = (): number => sequence++;
+
+    const enqueueUpdate = <T>(updateFn: () => Promise<T>): Promise<T> => {
       return new Promise((resolve, reject) => {
         updateQueue.push(async () => {
           try {
-            await updateFn();
-            resolve();
+            const result = await updateFn();
+            resolve(result);
           } catch (err) {
             reject(err);
           }
@@ -286,30 +290,118 @@ export class FeishuGateway {
       isProcessing = false;
     };
 
+    const ensureStreamingModeOpen = async (
+      reason: string,
+    ): Promise<boolean> => {
+      const reopenSeq = nextSequence();
+      const reopenRes = await this.sender.openCardStreaming(cardId, reopenSeq);
+      if (!reopenRes.ok) {
+        cardStreamingBroken = true;
+        log.error(
+          `Failed to re-open card streaming during ${reason}: ${reopenRes.msg || reopenRes.code || 'unknown error'}`,
+        );
+        return false;
+      }
+      log.warn(`Re-opened card streaming during ${reason}`);
+      return true;
+    };
+
+    const runCardOperation = async (
+      label: string,
+      operation: (sequence: number) => Promise<CardOpResult>,
+    ): Promise<boolean> => {
+      if (cardStreamingBroken) {
+        return false;
+      }
+
+      const firstRes = await operation(nextSequence());
+      if (firstRes.ok) {
+        return true;
+      }
+
+      if (firstRes.status !== 'streaming_closed') {
+        log.warn(
+          `Card operation ${label} failed: ${firstRes.msg || firstRes.code || 'unknown error'}`,
+        );
+        return false;
+      }
+
+      log.warn(
+        `Card operation ${label} hit closed streaming mode, attempting to re-open`,
+      );
+      const reopened = await ensureStreamingModeOpen(label);
+      if (!reopened) {
+        return false;
+      }
+
+      const retryRes = await operation(nextSequence());
+      if (retryRes.ok) {
+        return true;
+      }
+
+      if (retryRes.status === 'streaming_closed') {
+        cardStreamingBroken = true;
+      }
+      log.warn(
+        `Card operation ${label} failed after re-opening: ${retryRes.msg || retryRes.code || 'unknown error'}`,
+      );
+      return false;
+    };
+
+    const sendFallbackReply = async (
+      response: FeishuResponse,
+    ): Promise<void> => {
+      if (fallbackReplySent) {
+        return;
+      }
+      fallbackReplySent = true;
+
+      let fallbackText = response.text || mainText || ' ';
+      try {
+        fallbackText = await this.sender.processMarkdownResources(
+          fallbackText,
+          message.chatId,
+          { replyToMessageId: message.id },
+        );
+      } catch (err) {
+        log.warn(`Failed to process fallback markdown resources: ${err}`);
+      }
+
+      await this.sender.sendCard(
+        message.chatId,
+        {
+          ...response,
+          text: fallbackText,
+          thinking: response.thinking || thinkingText || undefined,
+        },
+        { replyToMessageId: message.id },
+      );
+      log.warn(
+        'Sent fallback non-streaming reply because streaming card could not be updated',
+      );
+    };
+
     const updater: StreamUpdater = {
       updateThinking: async (text: string) => {
         thinkingText = text;
         hasThinkingContent = true;
-        const currentSeq = sequence++;
         await enqueueUpdate(() =>
-          this.sender.updateCard(
-            cardId,
-            STREAM_EL.thinkingMd,
-            thinkingText,
-            currentSeq,
+          runCardOperation('update thinking', (seq) =>
+            this.sender.updateCard(
+              cardId,
+              STREAM_EL.thinkingMd,
+              thinkingText,
+              seq,
+            ),
           ),
         );
       },
 
       updateContent: async (text: string) => {
         mainText = text;
-        const currentSeq = sequence++;
         await enqueueUpdate(() =>
-          this.sender.updateCard(
-            cardId,
-            STREAM_EL.mainMd,
-            mainText,
-            currentSeq,
+          runCardOperation('update content', (seq) =>
+            this.sender.updateCard(cardId, STREAM_EL.mainMd, mainText, seq),
           ),
         );
       },
@@ -320,93 +412,131 @@ export class FeishuGateway {
           inputStr.length > 300 ? inputStr.slice(0, 300) + '…' : inputStr;
         thinkingText += `\n\n> 🔧 **${name}** \`${truncated}\`\n\n`;
         hasThinkingContent = true;
-        const currentSeq = sequence++;
 
         await enqueueUpdate(() =>
-          this.sender.updateCard(
-            cardId,
-            STREAM_EL.thinkingMd,
-            thinkingText,
-            currentSeq,
+          runCardOperation('append tool use', (seq) =>
+            this.sender.updateCard(
+              cardId,
+              STREAM_EL.thinkingMd,
+              thinkingText,
+              seq,
+            ),
           ),
         );
       },
 
       finalize: async (response: FeishuResponse) => {
-        let finalText = response.text || mainText;
+        // 用 try/finally 包裹所有中间步骤，确保无论是否出错，
+        // 最终都会执行 closeCardStreaming 关闭流式模式，
+        // 避免卡片因 streaming_mode 未关闭而一直显示加载状态。
+        log.info(`Finalizing stream for ${response.text}`);
+        try {
+          let finalText = response.text || mainText;
 
-        // Process markdown for images and files before finalizing
-        if (finalText) {
-          finalText = await this.sender.processMarkdownResources(
-            finalText,
-            message.chatId,
-            { replyToMessageId: message.id },
-          );
-        }
+          // Process markdown for images and files before finalizing
+          if (finalText) {
+            try {
+              finalText = await this.sender.processMarkdownResources(
+                finalText,
+                message.chatId,
+                { replyToMessageId: message.id },
+              );
+            } catch (err) {
+              log.warn(
+                `Failed to process markdown resources, using raw text: ${err}`,
+              );
+            }
+          }
 
-        const mainSeq = sequence++;
-        await enqueueUpdate(() =>
-          this.sender.updateCard(cardId, STREAM_EL.mainMd, finalText, mainSeq),
-        );
-
-        // Update thinking with final content if we have it
-        if (response.thinking) {
-          hasThinkingContent = true;
-          const thinkingSeq = sequence++;
-
-          await enqueueUpdate(() =>
-            this.sender.updateCard(
-              cardId,
-              STREAM_EL.thinkingMd,
-              response.thinking!,
-              thinkingSeq,
+          const mainOk = await enqueueUpdate(() =>
+            runCardOperation('finalize main content', (seq) =>
+              this.sender.updateCard(cardId, STREAM_EL.mainMd, finalText, seq),
             ),
           );
+          if (!mainOk) {
+            await sendFallbackReply({ ...response, text: finalText });
+          }
+
+          // Update thinking with final content if we have it
+          if (response.thinking) {
+            hasThinkingContent = true;
+            await enqueueUpdate(() =>
+              runCardOperation('finalize thinking', (seq) =>
+                this.sender.updateCard(
+                  cardId,
+                  STREAM_EL.thinkingMd,
+                  response.thinking!,
+                  seq,
+                ),
+              ),
+            );
+          }
+
+          // Hide thinking panel if no thinking content was generated
+          if (!hasThinkingContent && !thinkingText) {
+            await enqueueUpdate(() =>
+              runCardOperation('remove thinking panel', (seq) =>
+                this.sender.removeCardElement(
+                  cardId,
+                  STREAM_EL.thinkingPanel,
+                  seq,
+                ),
+              ),
+            );
+          }
+
+          // Add stats footer
+          const stats = this.formatStats(response);
+          if (stats) {
+            await enqueueUpdate(() =>
+              runCardOperation('append stats footer', (seq) =>
+                this.sender.appendCardElements(
+                  cardId,
+                  [
+                    { tag: 'hr', element_id: STREAM_EL.statsHr },
+                    {
+                      tag: 'markdown',
+                      element_id: STREAM_EL.statsNote,
+                      content: `*${stats}*`,
+                    },
+                  ],
+                  seq,
+                ),
+              ),
+            );
+          }
+        } catch (err) {
+          log.error(`Error during finalize card updates: ${err}`);
+          await sendFallbackReply(response);
+        } finally {
+          // 无论前面是否出错，都必须关闭流式模式，
+          // 否则飞书卡片会一直卡在"加载中"状态。
+          if (!cardStreamingBroken) {
+            await enqueueUpdate(async () => {
+              await this.sender.closeCardStreaming(cardId, nextSequence());
+            });
+          }
         }
-
-        // Hide thinking panel if no thinking content was generated
-        if (!hasThinkingContent && !thinkingText) {
-          const removeSeq = sequence++;
-          await enqueueUpdate(() =>
-            this.sender.removeCardElement(
-              cardId,
-              STREAM_EL.thinkingPanel,
-              removeSeq,
-            ),
-          );
-        }
-
-        // Add stats footer
-        const stats = this.formatStats(response);
-        if (stats) {
-          const statsSeq = sequence++;
-
-          await enqueueUpdate(() =>
-            this.sender.appendCardElements(
-              cardId,
-              [
-                { tag: 'hr', element_id: STREAM_EL.statsHr },
-                {
-                  tag: 'markdown',
-                  element_id: STREAM_EL.statsNote,
-                  content: `*${stats}*`,
-                },
-              ],
-              statsSeq,
-            ),
-          );
-        }
-
-        // Close streaming mode
-        const closeSeq = sequence++;
-
-        await enqueueUpdate(() =>
-          this.sender.closeCardStreaming(cardId, closeSeq),
-        );
       },
     };
 
-    await onStream(message, updater, sessionCache);
+    try {
+      await onStream(message, updater, sessionCache);
+    } catch (err) {
+      // 兜底保护：如果 onStream 回调异常导致 finalize 未被调用，
+      // 确保流式模式仍会被关闭，防止卡片永远卡在加载状态。
+      log.error(
+        `Stream handler error, ensuring card streaming is closed: ${err}`,
+      );
+      try {
+        if (!cardStreamingBroken) {
+          await this.sender.closeCardStreaming(cardId, nextSequence());
+        }
+      } catch (closeErr) {
+        log.warn(`Failed to close card streaming after error: ${closeErr}`);
+      }
+      throw err;
+    }
   }
 
   private formatStats(response: FeishuResponse): string | null {

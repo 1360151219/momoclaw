@@ -13,7 +13,8 @@ import {
   ToolCall,
   ToolEvent,
 } from './types.js';
-import { createArticleFetcherMcpServer, createBrowserMcpServer } from './mcp/index.js';
+import { createArticleFetcherMcpServer } from './mcp/article-fetcher/index.js';
+import { createBrowserMcpServer } from './mcp/browser/index.js';
 import { logger } from './debug.js';
 import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 
@@ -104,10 +105,6 @@ async function runAgentWithSDK(
         headers: {
           CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
         },
-      },
-      bilibili: {
-        command: 'node',
-        args: ['/app/node_modules/.bin/bilibili-mcp-server'],
       },
       github: {
         type: 'http',
@@ -299,6 +296,7 @@ async function main(): Promise<void> {
     };
 
     writeOutput(output);
+    process.exit(0);
   } catch (err: any) {
     const result: ContainerResult = {
       success: false,

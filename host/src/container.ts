@@ -415,6 +415,9 @@ class AgentRunner {
 
       const timeoutId = setTimeout(() => {
         child.kill('SIGTERM');
+        console.error(
+          `Container timeout after ${config.containerTimeout}ms, killing process ${child.pid}`,
+        );
         reject(
           new Error(`Container timeout after ${config.containerTimeout}ms`),
         );
