@@ -28,7 +28,7 @@ Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory reco
 ├── memory/                # Session-loaded context (keep SOUL.md, USER.md under 1000 tokens each)
 │   ├── SOUL.md            # Your identity, principles, capabilities
 │   └── USER.md            # User preferences, context, history
-│   └── YYYY-MM-DD/        # Daily memory records
+│   └── YYYY-MM-DD.md       # Daily memory records
 ├── temp/                  # Temporary files 
 ├── credentials/           # Credentials files
 └── projects/              # Git repos and code projects
