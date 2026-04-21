@@ -254,7 +254,6 @@ async function main(): Promise<void> {
   let payload: PromptPayload;
   try {
     payload = await readInput();
-    logger(`session start，payload received: `, payload);
   } catch (err: any) {
     const result: ContainerResult = {
       success: false,

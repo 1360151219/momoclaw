@@ -201,7 +201,6 @@ class ContainerManager {
     // 避免容器内 node 用户因 UID 不匹配导致 Permission denied
     const criticalSubDirs = [
       'memory',
-      'memory/sessions',
       'temp',
       'credentials',
       'temp/feishu-images',
