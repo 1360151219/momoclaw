@@ -68,6 +68,11 @@ USER node
 
 # 设置环境变量
 ENV NODE_ENV=production
+# 直接复用容器内已安装的 Chromium，避免 Puppeteer 去 node 用户缓存目录里找它自己的 Chrome。
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# 一些依赖库会优先读取 CHROME_PATH，这里一并对齐，减少兼容性问题。
+ENV CHROME_PATH=/usr/bin/chromium-browser
 # 指定 uv tool 安装目录为 node 用户的主目录
 ENV UV_TOOL_DIR=/home/node/.local/share/uv/tools
 # 指定 uv tool 产生的全局命令链接目录

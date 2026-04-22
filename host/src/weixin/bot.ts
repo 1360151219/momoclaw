@@ -4,7 +4,6 @@ import { processChat } from '../core/chatService.js';
 import {
   getSession,
   createSession,
-  deleteSession,
   getChannelMapping,
   setChannelMapping,
   deleteChannelMapping,
@@ -224,12 +223,10 @@ export class WeixinBot {
           channelId: msg.chatId,
           channelType: 'weixin',
           session: session,
-          // /new 回调：删除旧 session，更新映射指向新 session（与飞书一致）
+          // /new 回调：只切换到新 session，不删除旧 session（避免外键约束报错）
           onNewSession: (oldSessionId, newSessionId) => {
-            const oldId = this.sessionCache.get(msg.chatId) || oldSessionId;
-            if (oldId) {
-              deleteSession(oldId);
-            }
+            // 安全策略说明：
+            // 旧 session 可能仍被 scheduled_tasks 等表通过外键引用，直接删除会失败。
             this.sessionCache.set(msg.chatId, newSessionId);
             setChannelMapping(CHANNEL_TYPE, msg.chatId, newSessionId);
           },

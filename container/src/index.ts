@@ -21,6 +21,7 @@ import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 // 创建 MCP 服务器
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
 const browserMcpServer = createBrowserMcpServer();
+const DISALLOWED_BUILTIN_TOOLS = ['WebFetch', 'WebSearch'];
 
 /**
  * 在连接固定的 Host MCP SSE 地址之前，先把当前会话的业务上下文注册到宿主机。
@@ -123,6 +124,7 @@ async function runAgentWithSDK(
     env: sdkEnv,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true, // Bypass all permissions
+    disallowedTools: DISALLOWED_BUILTIN_TOOLS,
     model: apiConfig.model,
     stderr: (data: any) => process.stderr.write(data),
     mcpServers: {
