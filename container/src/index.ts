@@ -22,6 +22,35 @@ import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
 const browserMcpServer = createBrowserMcpServer();
 
+/**
+ * 在连接固定的 Host MCP SSE 地址之前，先把当前会话的业务上下文注册到宿主机。
+ * 这样可以避免把动态 session/channel 参数拼进 MCP URL，提升 Prefix Cache 稳定性。
+ */
+async function registerHostMcpContext(
+  hostMcpUrl: string,
+  sessionId: string,
+  channelContext?: PromptPayload['channelContext'],
+): Promise<void> {
+  const registerUrl = new URL('/context', hostMcpUrl).toString();
+  const response = await fetch(registerUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sessionId,
+      channelType: channelContext?.type,
+      channelId: channelContext?.channelId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to register host MCP context: ${response.status} ${response.statusText}`,
+    );
+  }
+}
+
 async function readInput(): Promise<PromptPayload> {
   if (!fs.existsSync(INPUT_FILE)) {
     throw new Error(`Input file not found: ${INPUT_FILE}`);
@@ -72,6 +101,14 @@ async function runAgentWithSDK(
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
   }
 
+  if (process.env.HOST_MCP_URL) {
+    await registerHostMcpContext(
+      process.env.HOST_MCP_URL,
+      session.id,
+      channelContext,
+    );
+  }
+
   const queryOptions: Options = {
     cwd: WORKSPACE_DIR,
     ...(session.claudeSessionId ? { resume: session.claudeSessionId } : {}),
@@ -95,7 +132,7 @@ async function runAgentWithSDK(
         ? {
             host_mcp: {
               type: 'sse' as const,
-              url: `${process.env.HOST_MCP_URL}?channelType=${channelContext?.type}&channelId=${channelContext?.channelId}&sessionId=${session.id}`,
+              url: process.env.HOST_MCP_URL,
             },
           }
         : {}),

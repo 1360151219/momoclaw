@@ -15,7 +15,25 @@ import {
 } from '../db/index.js';
 import { CronService } from '../cron/scheduler.js';
 
-function createSessionMcpServer(channelContext: any): McpServer {
+interface HostMcpContext {
+  sessionId?: string;
+  channelType?: string;
+  channelId?: string;
+}
+
+/**
+ * 归一化客户端地址，避免出现 `::ffff:127.0.0.1` 这类 IPv6 映射格式导致的 key 不一致。
+ */
+function getClientKey(req: express.Request): string {
+  const remoteAddress = req.socket.remoteAddress || req.ip || 'unknown';
+  return remoteAddress.replace(/^::ffff:/, '');
+}
+
+/**
+ * 为当前连接创建带有渠道上下文的 MCP Server。
+ * 这里的上下文不再通过 SSE URL 传递，而是由容器在建立连接前先注册到 Host。
+ */
+function createSessionMcpServer(channelContext: HostMcpContext): McpServer {
   const server = new McpServer({
     name: `momoclaw-host-mcp`,
     version: '1.0.0',
@@ -159,12 +177,33 @@ function createSessionMcpServer(channelContext: any): McpServer {
 export async function startHostMcpServer(port: number = 0): Promise<number> {
   const app = express();
   app.use(cors());
+  app.use(express.json());
 
   // 保存每个 sessionId 对应的 transport
   const transports = new Map<string, SSEServerTransport>();
+  // 按容器来源 IP 保存最近一次注册的业务上下文
+  const clientContexts = new Map<string, HostMcpContext>();
+
+  app.post('/context', async (req, res) => {
+    const clientKey = getClientKey(req);
+    const context: HostMcpContext = {
+      sessionId:
+        typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined,
+      channelType:
+        typeof req.body?.channelType === 'string'
+          ? req.body.channelType
+          : undefined,
+      channelId:
+        typeof req.body?.channelId === 'string' ? req.body.channelId : undefined,
+    };
+
+    clientContexts.set(clientKey, context);
+    res.status(204).end();
+  });
 
   app.get('/sse', async (req, res) => {
-    const server = createSessionMcpServer(req.query);
+    const clientKey = getClientKey(req);
+    const server = createSessionMcpServer(clientContexts.get(clientKey) || {});
 
     // SSEServerTransport will automatically append its own ?sessionId=uuid to this endpoint
     const transport = new SSEServerTransport('/messages', res);
