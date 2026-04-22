@@ -7,19 +7,18 @@ import {
   createScheduledTask,
   listScheduledTasks,
   listTasksByChannel,
-  updateTaskStatus,
   deleteScheduledTask,
-  getTaskRunLogs,
-  getScheduledTask,
-  updateTaskNextRun,
 } from '../db/index.js';
 import { CronService } from '../cron/scheduler.js';
+import type { ChannelType } from '../types.js';
 
 interface HostMcpContext {
   sessionId?: string;
-  channelType?: string;
+  channelType?: ChannelType;
   channelId?: string;
 }
+
+const VALID_CHANNEL_TYPES = ['feishu', 'terminal', 'weixin'] as const;
 
 /**
  * 归一化客户端地址，避免出现 `::ffff:127.0.0.1` 这类 IPv6 映射格式导致的 key 不一致。
@@ -27,6 +26,20 @@ interface HostMcpContext {
 function getClientKey(req: express.Request): string {
   const remoteAddress = req.socket.remoteAddress || req.ip || 'unknown';
   return remoteAddress.replace(/^::ffff:/, '');
+}
+
+/**
+ * 将外部传入的渠道类型收敛为系统内部可识别的联合类型。
+ * 这里返回 undefined 而不是抛错，目的是避免非法值污染后续任务创建和查询逻辑。
+ */
+function parseChannelType(value: unknown): ChannelType | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  return VALID_CHANNEL_TYPES.includes(value as ChannelType)
+    ? (value as ChannelType)
+    : undefined;
 }
 
 /**
@@ -77,7 +90,7 @@ function createSessionMcpServer(channelContext: HostMcpContext): McpServer {
 
         const actualSessionId = sessionId || channelContext.sessionId || '';
 
-        const task = createScheduledTask(
+        createScheduledTask(
           taskId,
           actualSessionId,
           prompt,
@@ -115,7 +128,10 @@ function createSessionMcpServer(channelContext: HostMcpContext): McpServer {
         // 这样无论用户 /new 切换了多少次会话，都能看到自己的任务
         let tasks;
         if (channelContext.channelType && channelContext.channelId) {
-          tasks = listTasksByChannel(channelContext.channelType, channelContext.channelId);
+          tasks = listTasksByChannel(
+            channelContext.channelType,
+            channelContext.channelId,
+          );
         } else {
           // 兜底：如果没有渠道信息，按 sessionId 查询
           tasks = listScheduledTasks(channelContext.sessionId);
@@ -188,13 +204,14 @@ export async function startHostMcpServer(port: number = 0): Promise<number> {
     const clientKey = getClientKey(req);
     const context: HostMcpContext = {
       sessionId:
-        typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined,
-      channelType:
-        typeof req.body?.channelType === 'string'
-          ? req.body.channelType
+        typeof req.body?.sessionId === 'string'
+          ? req.body.sessionId
           : undefined,
+      channelType: parseChannelType(req.body?.channelType),
       channelId:
-        typeof req.body?.channelId === 'string' ? req.body.channelId : undefined,
+        typeof req.body?.channelId === 'string'
+          ? req.body.channelId
+          : undefined,
     };
 
     clientContexts.set(clientKey, context);
