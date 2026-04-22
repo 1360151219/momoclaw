@@ -17,7 +17,8 @@ import type { CommandContext } from './commands.js';
 import { join, resolve } from 'path';
 import { ensureDirWithPerms } from '../hooks/utils.js';
 import { useThrottleFn } from '../hooks/throttle.js';
-
+import { logger } from './logger.js';
+const log = logger('feishu:bot');
 interface FeishuChatOptions {
   feishuConfig: FeishuConfig;
 }
@@ -179,6 +180,7 @@ async function handleStreamingMessage(
         }
       },
     });
+    log.info(`Agent response: ${JSON.stringify(result, null, 2)}`);
 
     if (result.success) {
       await updater.finalize({

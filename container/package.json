@@ -10,7 +10,11 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.34",
     "@modelcontextprotocol/sdk": "^1.0.4",
-    "@wangshunnn/bilibili-mcp-server": "latest"
+    "@wangshunnn/bilibili-mcp-server": "latest",
+    "cheerio": "^1.2.0",
+    "lru-cache": "^11.3.5",
+    "playwright-core": "^1.52.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

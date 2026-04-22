@@ -51,6 +51,30 @@ export function parseAesKey(aesKeyBase64: string): Buffer {
 }
 
 /**
+ * 生成随机 16 字节 AES 密钥
+ */
+export function generateAesKey(): Buffer {
+  return crypto.randomBytes(16);
+}
+
+/**
+ * 将 AES 密钥编码为 hex 字符串格式（32 个十六进制字符）
+ * 用于 getuploadurl 请求中的 aeskey 参数
+ */
+export function encodeAesKeyHex(key: Buffer): string {
+  return key.toString('hex');
+}
+
+/**
+ * 将 AES 密钥编码为 base64 格式
+ * 具体做法：先将密钥转为 hex 字符串（32 字符），再将 hex 字符串以 UTF-8 编码转为 base64
+ * 用于 sendmessage 请求中 CDNMedia.aes_key 字段
+ */
+export function encodeAesKeyBase64(key: Buffer): string {
+  return Buffer.from(key.toString('hex'), 'utf8').toString('base64');
+}
+
+/**
  * 提取图片下载所需参数
  */
 export function extractImageDownloadParams(imageItem: ImageItem): { encryptQueryParam: string, aesKey: Buffer } {

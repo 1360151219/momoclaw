@@ -4,7 +4,7 @@ import { ensureDirWithPerms } from '../hooks/utils.js';
 import { initSessionsTable } from './sessions.js';
 import { initMessagesTable } from './messages.js';
 import { initTasksTable, initTaskRunLogsTable } from './tasks.js';
-import { initFeishuMappingsTable } from './channels/feishuMappings.js';
+import { initChannelMappingsTable } from './channels/channelMappings.js';
 
 let db: Database.Database | null = null;
 
@@ -21,7 +21,7 @@ export function initDatabase(dbPath: string): Database.Database {
   initMessagesTable(db);
   initTasksTable(db);
   initTaskRunLogsTable(db);
-  initFeishuMappingsTable(db);
+  initChannelMappingsTable(db);
 
   return db;
 }

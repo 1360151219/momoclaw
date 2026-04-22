@@ -9,10 +9,41 @@ import * as path from 'node:path';
 import { ensureDirWithPerms } from '../hooks/utils.js';
 import { logger } from './logger.js';
 import type { FeishuResponse, FeishuConfig } from './types.js';
-import { getHttpClient, toCredentials, type BotCredentials } from './client.js';
+import { getHttpClient, toCredentials } from './client.js';
 import { config } from '../config.js';
 
 const log = logger('feishu:sender');
+
+/**
+ * 容器内的工作目录前缀（Docker 挂载点）
+ * 对应 docker run 中: -v ${workspacePath}:/workspace/files:rw
+ */
+const CONTAINER_WORKSPACE_PREFIX = '/workspace/files';
+
+/**
+ * 将容器内路径转换为宿主机路径
+ *
+ * 背景：AI Agent 在 Docker 容器内运行，它生成的图片/文件路径是容器内路径
+ * （如 /workspace/files/temp/downloads/xxx.png），但 Host 端在处理这些路径
+ * 时需要用宿主机的实际路径（如 ./workspace/temp/downloads/xxx.png）才能读取文件。
+ *
+ * 映射关系（来自 container.ts 中的 docker run 参数）：
+ *   容器内 /workspace/files  ←→  宿主机 config.workspaceDir
+ *
+ * @param filePath - 可能是容器内路径，也可能已经是宿主机路径
+ * @returns 转换后的宿主机路径
+ */
+function resolveContainerPath(filePath: string): string {
+  if (filePath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+    const relativePath = filePath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    return path.join(config.workspaceDir, relativePath);
+  }
+  // 如果是相对路径
+  if (!filePath.startsWith('/')) {
+    return path.resolve(config.workspaceDir, filePath);
+  }
+  return filePath;
+}
 
 // Card element IDs for streaming updates
 const STREAM_EL = {
@@ -22,6 +53,15 @@ const STREAM_EL = {
   statsHr: 'stats_hr',
   statsNote: 'stats_note',
 } as const;
+
+type CardOpStatus = 'ok' | 'streaming_closed' | 'error';
+
+export interface CardOpResult {
+  ok: boolean;
+  status: CardOpStatus;
+  code?: number;
+  msg?: string;
+}
 
 interface CardBody {
   schema: '2.0';
@@ -36,7 +76,7 @@ interface CardBody {
 export class FeishuSender {
   private client: Client;
 
-  constructor(private config: FeishuConfig) {
+  constructor(config: FeishuConfig) {
     this.client = getHttpClient(toCredentials(config));
   }
 
@@ -177,23 +217,26 @@ export class FeishuSender {
       }
 
       // 如果路径存在或者是本地文件 (now including downloaded ones)
-      if (
-        imagePath &&
-        !imagePath.startsWith('http') &&
-        fs.existsSync(imagePath)
-      ) {
-        const imageKey = await this.uploadImage(imagePath);
-        if (imageKey) {
-          processedText = processedText.replace(
-            originalString,
-            `![image](${imageKey})`,
-          );
+      // 注意：先将容器内路径转换为宿主机路径，否则 fs.existsSync 永远找不到文件
+      if (imagePath && !imagePath.startsWith('http')) {
+        const hostPath = resolveContainerPath(imagePath);
+        if (fs.existsSync(hostPath)) {
+          const imageKey = await this.uploadImage(hostPath);
+          if (imageKey) {
+            processedText = processedText.replace(
+              originalString,
+              `![image](${imageKey})`,
+            );
+          } else {
+            processedText = processedText.replace(originalString, '');
+          }
         } else {
-          // Fallback if upload fails
+          log.warn(
+            `Image not found after path resolve: ${imagePath} -> ${hostPath}`,
+          );
           processedText = processedText.replace(originalString, '');
         }
       } else {
-        // If it's still not a valid local path at this point, remove it or convert to link
         processedText = processedText.replace(originalString, '');
       }
     }
@@ -208,13 +251,16 @@ export class FeishuSender {
       if (
         filePath &&
         !filePath.startsWith('http') &&
-        fs.existsSync(filePath) &&
         !seenFiles.has(filePath)
       ) {
-        seenFiles.add(filePath);
-        const fileKey = await this.uploadFile(filePath);
-        if (fileKey) {
-          await this.sendFileMessage(chatId, fileKey, options);
+        // 同样需要将容器内路径转换为宿主机路径
+        const hostFilePath = resolveContainerPath(filePath);
+        if (fs.existsSync(hostFilePath)) {
+          seenFiles.add(filePath);
+          const fileKey = await this.uploadFile(hostFilePath);
+          if (fileKey) {
+            await this.sendFileMessage(chatId, fileKey, options);
+          }
         }
       }
     }
@@ -356,7 +402,7 @@ export class FeishuSender {
     elementId: string,
     content: string,
     sequence: number,
-  ): Promise<void> {
+  ): Promise<CardOpResult> {
     try {
       const res = await this.client.cardkit.v1.cardElement.content({
         path: { card_id: cardId, element_id: elementId },
@@ -366,11 +412,14 @@ export class FeishuSender {
         log.warn(
           `Failed to update card element ${elementId}, sequence ${sequence}: ${res.msg}`,
         );
+        return this.buildCardOpResult(res.code, res.msg);
       }
+      return { ok: true, status: 'ok', code: res.code, msg: res.msg };
     } catch (err) {
       log.warn(
         `Failed to update card element ${elementId}, sequence ${sequence}: ${err}`,
       );
+      return this.buildCardOpResult(undefined, String(err));
     }
   }
 
@@ -381,7 +430,7 @@ export class FeishuSender {
     cardId: string,
     elements: Array<Record<string, unknown>>,
     sequence: number,
-  ): Promise<void> {
+  ): Promise<CardOpResult> {
     try {
       const res = await this.client.cardkit.v1.cardElement.create({
         path: { card_id: cardId },
@@ -393,9 +442,12 @@ export class FeishuSender {
       });
       if (res.code !== 0) {
         log.warn(`Failed to append card elements: ${res.msg}`);
+        return this.buildCardOpResult(res.code, res.msg);
       }
+      return { ok: true, status: 'ok', code: res.code, msg: res.msg };
     } catch (err) {
       log.warn(`Failed to append card elements: ${err}`);
+      return this.buildCardOpResult(undefined, String(err));
     }
   }
 
@@ -434,7 +486,7 @@ export class FeishuSender {
     cardId: string,
     elementId: string,
     sequence: number,
-  ): Promise<void> {
+  ): Promise<CardOpResult> {
     try {
       const res = await this.client.cardkit.v1.cardElement.delete({
         path: { card_id: cardId, element_id: elementId },
@@ -442,9 +494,12 @@ export class FeishuSender {
       });
       if (res.code !== 0) {
         log.warn(`Failed to remove card element ${elementId}: ${res.msg}`);
+        return this.buildCardOpResult(res.code, res.msg);
       }
+      return { ok: true, status: 'ok', code: res.code, msg: res.msg };
     } catch (err) {
       log.warn(`Failed to remove card element ${elementId}: ${err}`);
+      return this.buildCardOpResult(undefined, String(err));
     }
   }
 
@@ -462,9 +517,36 @@ export class FeishuSender {
       });
       if (res.code !== 0) {
         log.warn(`Failed to close card streaming: ${res.msg}`);
+        return;
       }
     } catch (err) {
       log.warn(`Failed to close card streaming: ${err}`);
+    }
+  }
+
+  /**
+   * Re-open streaming mode on a card after Feishu auto-closes it.
+   */
+  async openCardStreaming(
+    cardId: string,
+    sequence: number,
+  ): Promise<CardOpResult> {
+    try {
+      const res = await this.client.cardkit.v1.card.settings({
+        path: { card_id: cardId },
+        data: {
+          settings: JSON.stringify({ config: { streaming_mode: true } }),
+          sequence,
+        },
+      });
+      if (res.code !== 0) {
+        log.warn(`Failed to open card streaming: ${res.msg}`);
+        return this.buildCardOpResult(res.code, res.msg);
+      }
+      return { ok: true, status: 'ok', code: res.code, msg: res.msg };
+    } catch (err) {
+      log.warn(`Failed to open card streaming: ${err}`);
+      return this.buildCardOpResult(undefined, String(err));
     }
   }
 
@@ -590,6 +672,31 @@ export class FeishuSender {
         },
       });
     }
+  }
+
+  private buildCardOpResult(code?: number, msg?: string): CardOpResult {
+    return {
+      ok: false,
+      status: this.isStreamingClosedError(code, msg)
+        ? 'streaming_closed'
+        : 'error',
+      code,
+      msg,
+    };
+  }
+
+  private isStreamingClosedError(code?: number, msg?: string): boolean {
+    if (code === 400200850 || code === 400300309) {
+      return true;
+    }
+    if (!msg) return false;
+
+    return (
+      msg.includes('Card streaming timeout') ||
+      msg.includes('Card streaming closed') ||
+      msg.includes('流式更新模式因超时自动关闭') ||
+      msg.includes('流式更新模式为关闭状态')
+    );
   }
 }
 

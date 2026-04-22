@@ -10,7 +10,20 @@ RUN apk update && apk add \
     bash \
     build-base \
     clang \
-    compiler-rt
+    compiler-rt \
+    \
+    # --- Browser automation (headless Chromium) ---
+    # Keep this minimal for 2GB RAM servers:
+    # - chromium: browser binary
+    # - nss/ca-certificates: TLS/HTTPS support
+    # - freetype/harfbuzz: basic font rendering
+    # - font-noto-cjk: High-quality Chinese/Japanese/Korean font rendering
+    chromium \
+    nss \
+    ca-certificates \
+    freetype \
+    harfbuzz \
+    font-noto-cjk
 
 # Set CC to clang for uv managed python
 ENV CC=clang

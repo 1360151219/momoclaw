@@ -17,7 +17,7 @@ Persistent memory system for Agent. Save key information, recall historical cont
 | Type | Path | Purpose | Token Limit |
 |------|------|---------|-------------|
 | **User Memory** | `memory/USER.md` | Preferences, decisions, project context | ≤ 500 tokens |
-| **Session Log** | `memory/sessions/YYYY-MM-DD.md` | Daily progress, temporary todos, session notes | ≤ 800 tokens |
+| **Session Log** | `memory/YYYY-MM-DD.md` | Daily progress, temporary todos, session notes | ≤ 800 tokens |
 
 > **Context Injection**: System auto-loads `USER.md` + today's session log at session start. Historical sessions are retrieved on-demand via search only.
 

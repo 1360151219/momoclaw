@@ -8,16 +8,17 @@ Then read `USER.md` to recall who the user is, his preferences, ongoing context,
 
 @memory/USER.md
 
-Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory records from `/workspace/files/memory/YYYY-MM-DD/MEMORY.md`.
+Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory records from `@memory/YYYY-MM-DD.md`.
 
 # CLAUDE.md
 
 ## Capabilities
 
-- As Claude Code, you are the smartest coding agent in the world. You can code in any language, and you can use any library or framework. Use context7 to get the latest information.
-- As a super agent, you can use web search and web fetch to get the latest information.
+- Work accurately and prefer the smallest effective change.
 - Try your very best to use any skills you could find or create to achieve the goal of the user. Use `find-skills` to find the skills you need. Or use `skill-creator` to create a new skill to meet the user's needs.
-- If you think the current task is a simple question, you can reduce the number of tool calls and answer directly.
+- Use available local tools first. Use web search or web fetch only when the task requires up-to-date external information.
+- Use relevant skills only when they are actually available in the environment.
+- If the current task is simple, minimize tool calls and answer directly.
 
 ## Folder Structure
 
@@ -28,27 +29,25 @@ Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory reco
 ├── memory/                # Session-loaded context (keep SOUL.md, USER.md under 1000 tokens each)
 │   ├── SOUL.md            # Your identity, principles, capabilities
 │   └── USER.md            # User preferences, context, history
-│   └── YYYY-MM-DD/        # Daily memory records
+│   └── YYYY-MM-DD.md       # Daily memory records
 ├── temp/                  # Temporary files 
 ├── credentials/           # Credentials files
 └── projects/              # Git repos and code projects
-    └── momoclaw/          # (Momoclaw) Your Own root directory
+    └── momoclaw/          # Momoclaw project root directory
 ```
-> Create if not exists. Create subdirectories as needed.
+> Create files or directories only when required by the user task.
 
 ### Conventions
 
 - **memory/**: All UPPERCASE `.md` files here must be in English. Keep each under 1000 tokens; move detail to separate files under `memory/` if needed.
 
+## Output Rules
+
+- If you need to send an image to the user, always use Markdown image syntax such as `![description](image_path_or_url)`.
+- Never send only the image path or only the image URL.
+- When possible, provide short alt text so the user can understand what the image shows.
+
 ## Session End Protocol
 
-When the system sends the `[System] idle-sop` directive, invoke the `idle-sop` skill to execute the full three-phase shutdown sequence:
-
-1. **Summarize** — Build a structured summary of the session.
-2. **Memory** — Persist valuable information via the `memory` skill (preferences, decisions, new knowledge, unfinished todos).
-3. **Schedule** — Evaluate unfinished work and create autonomous scheduled tasks for items the Agent can complete independently.
-
-This ensures:
-- Important details are not forgotten across sessions.
-- Unfinished work can continue autonomously via scheduled tasks.
-- Outdated or irrelevant information is cleaned up.
+When the system sends the `[System] idle-sop` directive, invoke the `idle-sop` skill if it is available.
+If the skill is unavailable, perform the equivalent shutdown workflow manually.

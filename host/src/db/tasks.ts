@@ -55,7 +55,7 @@ export function initTasksTable(db: any): void {
             updated_at INTEGER NOT NULL,
             channel_type TEXT,
             channel_id TEXT,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
         )
     `);
   db.exec(
@@ -175,6 +175,21 @@ export function listScheduledTasks(sessionId?: string): ScheduledTask[] {
       .prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC')
       .all() as any[];
   }
+
+  return rows.map(mapRowToScheduledTask);
+}
+
+/**
+ * 按渠道查询定时任务列表
+ * 用于跨 session 查询同一渠道下的所有任务（解决 /new 后看不到任务的问题）
+ */
+export function listTasksByChannel(channelType: string, channelId: string): ScheduledTask[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      'SELECT * FROM scheduled_tasks WHERE channel_type = ? AND channel_id = ? ORDER BY created_at DESC',
+    )
+    .all(channelType, channelId) as any[];
 
   return rows.map(mapRowToScheduledTask);
 }

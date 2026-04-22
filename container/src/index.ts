@@ -13,12 +13,43 @@ import {
   ToolCall,
   ToolEvent,
 } from './types.js';
-import { createArticleFetcherMcpServer } from './mcp/index.js';
+import { createArticleFetcherMcpServer } from './mcp/article-fetcher/index.js';
+import { createBrowserMcpServer } from './mcp/browser/index.js';
 import { logger } from './debug.js';
 import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 
 // 创建 MCP 服务器
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
+const browserMcpServer = createBrowserMcpServer();
+
+/**
+ * 在连接固定的 Host MCP SSE 地址之前，先把当前会话的业务上下文注册到宿主机。
+ * 这样可以避免把动态 session/channel 参数拼进 MCP URL，提升 Prefix Cache 稳定性。
+ */
+async function registerHostMcpContext(
+  hostMcpUrl: string,
+  sessionId: string,
+  channelContext?: PromptPayload['channelContext'],
+): Promise<void> {
+  const registerUrl = new URL('/context', hostMcpUrl).toString();
+  const response = await fetch(registerUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sessionId,
+      channelType: channelContext?.type,
+      channelId: channelContext?.channelId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to register host MCP context: ${response.status} ${response.statusText}`,
+    );
+  }
+}
 
 async function readInput(): Promise<PromptPayload> {
   if (!fs.existsSync(INPUT_FILE)) {
@@ -70,6 +101,14 @@ async function runAgentWithSDK(
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
   }
 
+  if (process.env.HOST_MCP_URL) {
+    await registerHostMcpContext(
+      process.env.HOST_MCP_URL,
+      session.id,
+      channelContext,
+    );
+  }
+
   const queryOptions: Options = {
     cwd: WORKSPACE_DIR,
     ...(session.claudeSessionId ? { resume: session.claudeSessionId } : {}),
@@ -88,11 +127,12 @@ async function runAgentWithSDK(
     stderr: (data: any) => process.stderr.write(data),
     mcpServers: {
       momoclaw_mcp: articleFetcherMcpServer,
+      browser_mcp: browserMcpServer,
       ...(process.env.HOST_MCP_URL
         ? {
             host_mcp: {
               type: 'sse' as const,
-              url: `${process.env.HOST_MCP_URL}?channelType=${channelContext?.type}&channelId=${channelContext?.channelId}&sessionId=${session.id}`,
+              url: process.env.HOST_MCP_URL,
             },
           }
         : {}),
@@ -102,10 +142,6 @@ async function runAgentWithSDK(
         headers: {
           CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
         },
-      },
-      bilibili: {
-        command: 'node',
-        args: ['/app/node_modules/.bin/bilibili-mcp-server'],
       },
       github: {
         type: 'http',
@@ -255,7 +291,6 @@ async function main(): Promise<void> {
   let payload: PromptPayload;
   try {
     payload = await readInput();
-    logger(`session start，payload received: `, payload);
   } catch (err: any) {
     const result: ContainerResult = {
       success: false,
@@ -297,6 +332,7 @@ async function main(): Promise<void> {
     };
 
     writeOutput(output);
+    process.exit(0);
   } catch (err: any) {
     const result: ContainerResult = {
       success: false,

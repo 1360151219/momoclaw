@@ -6,15 +6,47 @@ import { z } from 'zod';
 import {
   createScheduledTask,
   listScheduledTasks,
-  updateTaskStatus,
+  listTasksByChannel,
   deleteScheduledTask,
-  getTaskRunLogs,
-  getScheduledTask,
-  updateTaskNextRun,
 } from '../db/index.js';
 import { CronService } from '../cron/scheduler.js';
+import type { ChannelType } from '../types.js';
 
-function createSessionMcpServer(channelContext: any): McpServer {
+interface HostMcpContext {
+  sessionId?: string;
+  channelType?: ChannelType;
+  channelId?: string;
+}
+
+const VALID_CHANNEL_TYPES = ['feishu', 'terminal', 'weixin'] as const;
+
+/**
+ * 归一化客户端地址，避免出现 `::ffff:127.0.0.1` 这类 IPv6 映射格式导致的 key 不一致。
+ */
+function getClientKey(req: express.Request): string {
+  const remoteAddress = req.socket.remoteAddress || req.ip || 'unknown';
+  return remoteAddress.replace(/^::ffff:/, '');
+}
+
+/**
+ * 将外部传入的渠道类型收敛为系统内部可识别的联合类型。
+ * 这里返回 undefined 而不是抛错，目的是避免非法值污染后续任务创建和查询逻辑。
+ */
+function parseChannelType(value: unknown): ChannelType | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  return VALID_CHANNEL_TYPES.includes(value as ChannelType)
+    ? (value as ChannelType)
+    : undefined;
+}
+
+/**
+ * 为当前连接创建带有渠道上下文的 MCP Server。
+ * 这里的上下文不再通过 SSE URL 传递，而是由容器在建立连接前先注册到 Host。
+ */
+function createSessionMcpServer(channelContext: HostMcpContext): McpServer {
   const server = new McpServer({
     name: `momoclaw-host-mcp`,
     version: '1.0.0',
@@ -58,7 +90,7 @@ function createSessionMcpServer(channelContext: any): McpServer {
 
         const actualSessionId = sessionId || channelContext.sessionId || '';
 
-        const task = createScheduledTask(
+        createScheduledTask(
           taskId,
           actualSessionId,
           prompt,
@@ -88,17 +120,22 @@ function createSessionMcpServer(channelContext: any): McpServer {
   // 2. list_scheduled_tasks
   server.tool(
     'list_scheduled_tasks',
-    '【查询定时任务列表】当用户询问"我有几个定时任务"、"帮我看看我有哪些定时任务"时，必须使用此工具获取当前已创建的任务列表。',
-    {
-      sessionId: z
-        .string()
-        .optional()
-        .describe('关联的会话ID（可以不传，不传则查询当前会话）'),
-    },
-    async ({ sessionId }) => {
+    `【查询定时任务列表】当用户询问"我有几个定时任务"、"帮我看看我有哪些定时任务"时，必须使用此工具获取已创建的任务列表。`,
+    {},
+    async () => {
       try {
-        const actualSessionId = sessionId || channelContext.sessionId;
-        const tasks = listScheduledTasks(actualSessionId);
+        // 优先按渠道查询：同一渠道（如同一个飞书群、同一个终端）下的所有任务
+        // 这样无论用户 /new 切换了多少次会话，都能看到自己的任务
+        let tasks;
+        if (channelContext.channelType && channelContext.channelId) {
+          tasks = listTasksByChannel(
+            channelContext.channelType,
+            channelContext.channelId,
+          );
+        } else {
+          // 兜底：如果没有渠道信息，按 sessionId 查询
+          tasks = listScheduledTasks(channelContext.sessionId);
+        }
         return {
           content: [
             {
@@ -156,12 +193,34 @@ function createSessionMcpServer(channelContext: any): McpServer {
 export async function startHostMcpServer(port: number = 0): Promise<number> {
   const app = express();
   app.use(cors());
+  app.use(express.json());
 
   // 保存每个 sessionId 对应的 transport
   const transports = new Map<string, SSEServerTransport>();
+  // 按容器来源 IP 保存最近一次注册的业务上下文
+  const clientContexts = new Map<string, HostMcpContext>();
+
+  app.post('/context', async (req, res) => {
+    const clientKey = getClientKey(req);
+    const context: HostMcpContext = {
+      sessionId:
+        typeof req.body?.sessionId === 'string'
+          ? req.body.sessionId
+          : undefined,
+      channelType: parseChannelType(req.body?.channelType),
+      channelId:
+        typeof req.body?.channelId === 'string'
+          ? req.body.channelId
+          : undefined,
+    };
+
+    clientContexts.set(clientKey, context);
+    res.status(204).end();
+  });
 
   app.get('/sse', async (req, res) => {
-    const server = createSessionMcpServer(req.query);
+    const clientKey = getClientKey(req);
+    const server = createSessionMcpServer(clientContexts.get(clientKey) || {});
 
     // SSEServerTransport will automatically append its own ?sessionId=uuid to this endpoint
     const transport = new SSEServerTransport('/messages', res);
