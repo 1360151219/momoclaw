@@ -213,7 +213,9 @@ export async function startHostMcpServer(port: number = 0): Promise<number> {
           ? req.body.channelId
           : undefined,
     };
-
+    console.log(
+      `[Host MCP Server] Received context for ${clientKey}: ${JSON.stringify(context)}`,
+    );
     clientContexts.set(clientKey, context);
     res.status(204).end();
   });
@@ -221,6 +223,10 @@ export async function startHostMcpServer(port: number = 0): Promise<number> {
   app.get('/sse', async (req, res) => {
     const clientKey = getClientKey(req);
     const server = createSessionMcpServer(clientContexts.get(clientKey) || {});
+    console.log(
+      `[Host MCP Server] Created session for ${clientKey}:`,
+      clientContexts.get(clientKey),
+    );
 
     // SSEServerTransport will automatically append its own ?sessionId=uuid to this endpoint
     const transport = new SSEServerTransport('/messages', res);
@@ -241,7 +247,7 @@ export async function startHostMcpServer(port: number = 0): Promise<number> {
       res.status(400).send('SSE not initialized for this session');
       return;
     }
-    await transport.handlePostMessage(req, res);
+    await transport.handlePostMessage(req, res, req.body);
   });
 
   // 启动服务

@@ -340,7 +340,7 @@ class AgentRunner {
     // outputFile will be created by the container, no need to chmodSync here
 
     const hostMcpPort = config.hostMcpPort;
-    const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
+    const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}`;
 
     const dockerArgs = [
       'exec',

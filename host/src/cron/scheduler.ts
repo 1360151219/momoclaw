@@ -118,6 +118,27 @@ export class CronService {
   }
 
   /**
+   * 根据任务自身已落库的渠道信息，恢复本次容器执行所需的 channelContext。
+   * 这样即使这是一个脱离原始聊天现场的 cron 触发，也能让容器在注册 `/context`
+   * 时继续携带正确的渠道标识，避免后续再次调用 host_mcp 时丢失渠道上下文。
+   *
+   * @param task 当前正在执行的定时任务
+   * @returns 可直接放入 PromptPayload 的渠道上下文；若任务未保存渠道信息则返回 undefined
+   */
+  private buildChannelContextForTask(
+    task: ScheduledTask,
+  ): PromptPayload['channelContext'] {
+    if (!task.channelType || !task.channelId) {
+      return undefined;
+    }
+
+    return {
+      type: task.channelType,
+      channelId: task.channelId,
+    };
+  }
+
+  /**
    * 执行单个任务
    *
    * 关键设计：动态获取用户当前活跃的 session，而非永远使用创建时的旧 session。
@@ -173,6 +194,7 @@ export class CronService {
       messages: [], // 容器端将使用 resume(claudeSessionId) 来加载持久化的历史
       userInput: executionPrompt,
       apiConfig: getApiConfig(config, session.model || undefined),
+      channelContext: this.buildChannelContextForTask(task),
     };
 
     // 记录实际使用的 sessionId，用于后续写入消息
