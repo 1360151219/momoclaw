@@ -8,7 +8,6 @@ import type { FeishuMessage, FeishuResponse } from './types.js';
 import {
   getSession,
   createSession,
-  deleteSession,
   getChannelMapping,
   setChannelMapping,
   deleteChannelMapping,
@@ -46,11 +45,16 @@ export async function executeCommand(
     session: session,
     botId: context.botOpenId,
     onNewSession: (oldSessionId, newSessionId) => {
-      // Delete old session if exists (using cache to find it)
-      const oldId = getCachedSessionId(message.chatId, context);
-      if (oldId) {
-        deleteSession(oldId);
-        log.info(`Deleted old session ${oldId} for chat ${message.chatId}`);
+      /**
+       * 安全策略：/new 只切换到新 session，不删除旧 session。
+       *
+       * 原因：旧 session 可能仍被 scheduled_tasks 等表通过外键引用，
+       * 直接删除会触发 SQLite 的 FOREIGN KEY constraint failed。
+       */
+      if (oldSessionId && oldSessionId !== newSessionId) {
+        log.info(
+          `Preserved old session ${oldSessionId} for chat ${message.chatId} (switched to ${newSessionId})`,
+        );
       }
 
       // Update cache and persistent mapping

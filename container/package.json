@@ -14,6 +14,9 @@
     "cheerio": "^1.2.0",
     "lru-cache": "^11.3.5",
     "playwright-core": "^1.52.0",
+    "puppeteer": "^24.42.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {

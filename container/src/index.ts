@@ -21,6 +21,7 @@ import { INPUT_FILE, OUTPUT_FILE, WORKSPACE_DIR } from './const.js';
 // 创建 MCP 服务器
 const articleFetcherMcpServer = createArticleFetcherMcpServer();
 const browserMcpServer = createBrowserMcpServer();
+const DISALLOWED_BUILTIN_TOOLS = ['WebFetch', 'WebSearch'];
 
 /**
  * 在连接固定的 Host MCP SSE 地址之前，先把当前会话的业务上下文注册到宿主机。
@@ -83,8 +84,9 @@ async function runAgentWithSDK(
   let enhancedSystemPrompt = session.systemPrompt || '';
 
   // 设置环境变量供 SDK 使用
-  const sdkEnv: Record<string, string | undefined> = {
+  const sdkEnv: Record<string, any> = {
     ...process.env,
+    ENABLE_TOOL_SEARCH: false,
     ANTHROPIC_BASE_URL: apiConfig.baseUrl,
     ANTHROPIC_API_KEY: apiConfig.apiKey,
     ANTHROPIC_AUTH_TOKEN: apiConfig.apiKey,
@@ -123,6 +125,7 @@ async function runAgentWithSDK(
     env: sdkEnv,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true, // Bypass all permissions
+    disallowedTools: DISALLOWED_BUILTIN_TOOLS,
     model: apiConfig.model,
     stderr: (data: any) => process.stderr.write(data),
     mcpServers: {
