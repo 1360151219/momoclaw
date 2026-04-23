@@ -826,7 +826,7 @@ public async run(
     'exec', '-i',
     '-e', `INPUT_FILE=/workspace/session_tmp/${runId}/input/payload.json`,
     '-e', `OUTPUT_FILE=/workspace/session_tmp/${runId}/output/result.json`,
-    '-e', `HOST_MCP_URL=http://host.docker.internal:${hostMcpPort}/sse`,
+    '-e', `HOST_MCP_URL=http://host.docker.internal:${hostMcpPort}`,
     '-u', 'node',
     activeContainer.containerName,
     'node', '/app/dist/index.js',

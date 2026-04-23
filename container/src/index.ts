@@ -132,7 +132,7 @@ async function runAgentWithSDK(
         ? {
             host_mcp: {
               type: 'sse' as const,
-              url: process.env.HOST_MCP_URL,
+              url: `${process.env.HOST_MCP_URL}/sse`,
             },
           }
         : {}),
