@@ -1,10 +1,14 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod/v4';
 import { ArticleFetcher } from './fetcher.js';
-import { ArticleSearchService } from './search.js';
+import { SearchService } from './search.js';
 
 const fetcher = new ArticleFetcher();
-const searchService = new ArticleSearchService();
+const searchService = new SearchService({
+  timeout: 25_000,
+  maxRetries: 3,
+  region: 'cn-zh',
+});
 
 /**
  * 创建 article-fetcher 对应的 MCP Server。
@@ -106,12 +110,7 @@ export function createArticleFetcherMcpServer() {
           region = 'cn-zh',
           safeSearch,
         }) => {
-          const result = await searchService.search(query, searchType, {
-            limit,
-            language,
-            region,
-            safeSearch,
-          });
+          const result = await searchService.search(query);
 
           return {
             content: [

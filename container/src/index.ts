@@ -84,8 +84,9 @@ async function runAgentWithSDK(
   let enhancedSystemPrompt = session.systemPrompt || '';
 
   // 设置环境变量供 SDK 使用
-  const sdkEnv: Record<string, string | undefined> = {
+  const sdkEnv: Record<string, any> = {
     ...process.env,
+    ENABLE_TOOL_SEARCH: false,
     ANTHROPIC_BASE_URL: apiConfig.baseUrl,
     ANTHROPIC_API_KEY: apiConfig.apiKey,
     ANTHROPIC_AUTH_TOKEN: apiConfig.apiKey,
