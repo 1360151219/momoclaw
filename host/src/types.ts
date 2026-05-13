@@ -1,6 +1,7 @@
 export interface Session {
   id: string;
   claudeSessionId?: string;
+  wxUserId?: string;
   name: string;
   systemPrompt: string;
   model: string;
@@ -132,6 +133,7 @@ export type TaskStatus = 'active' | 'paused' | 'completed' | 'failed';
 export interface ScheduledTask {
   id: string;
   sessionId: string;
+  wxUserId?: string;
   prompt: string;
   scheduleType: ScheduleType;
   scheduleValue: string; // cron expression, interval seconds, or timestamp in milliseconds

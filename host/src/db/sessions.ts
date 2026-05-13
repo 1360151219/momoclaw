@@ -1,5 +1,5 @@
 import { Session } from '../types.js';
-import { getDb } from './connection.js';
+import { getDb, addColumnIfNotExists } from './connection.js';
 
 /**
  * Initialize the sessions table
@@ -9,6 +9,7 @@ export function initSessionsTable(db: any): void {
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             claude_session_id TEXT UNIQUE,
+            wx_user_id TEXT,
             name TEXT NOT NULL,
             system_prompt TEXT NOT NULL DEFAULT '',
             model TEXT,
@@ -18,6 +19,8 @@ export function initSessionsTable(db: any): void {
             summary TEXT
         )
     `);
+  // Migration: add wx_user_id if upgrading from older schema
+  addColumnIfNotExists(db, 'sessions', 'wx_user_id', 'TEXT');
 }
 
 export function createSession(
@@ -25,6 +28,7 @@ export function createSession(
   name: string,
   systemPrompt: string = '',
   model?: string,
+  wxUserId?: string,
 ): Session {
   const db = getDb();
   const now = Date.now();
@@ -33,15 +37,16 @@ export function createSession(
   db.prepare('UPDATE sessions SET is_active = 0 WHERE is_active = 1').run();
 
   const stmt = db.prepare(`
-        INSERT INTO sessions (id, claude_session_id, name, system_prompt, model, created_at, updated_at, is_active)
-        VALUES (?, NULL, ?, ?, ?, ?, ?, 1)
+        INSERT INTO sessions (id, claude_session_id, wx_user_id, name, system_prompt, model, created_at, updated_at, is_active)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 1)
     `);
 
-  stmt.run(id, name, systemPrompt, model || null, now, now);
+  stmt.run(id, wxUserId || null, name, systemPrompt, model || null, now, now);
 
   return {
     id,
     claudeSessionId: undefined,
+    wxUserId,
     name,
     systemPrompt,
     model: model || '',
@@ -61,6 +66,7 @@ export function getSession(id: string): Session | undefined {
   return {
     id: row.id,
     claudeSessionId: row.claude_session_id,
+    wxUserId: row.wx_user_id,
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',
@@ -82,6 +88,7 @@ export function getActiveSession(): Session | undefined {
   return {
     id: row.id,
     claudeSessionId: row.claude_session_id,
+    wxUserId: row.wx_user_id,
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',
@@ -101,6 +108,7 @@ export function listSessions(): Session[] {
   return rows.map((row) => ({
     id: row.id,
     claudeSessionId: row.claude_session_id,
+    wxUserId: row.wx_user_id,
     name: row.name,
     systemPrompt: row.system_prompt,
     model: row.model || '',

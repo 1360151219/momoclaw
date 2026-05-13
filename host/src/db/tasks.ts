@@ -6,7 +6,7 @@ import {
   ScheduleType,
   ChannelType,
 } from '../types.js';
-import { getDb } from './connection.js';
+import { getDb, addColumnIfNotExists } from './connection.js';
 
 // ========== Helper Functions ==========
 
@@ -18,6 +18,7 @@ function mapRowToScheduledTask(row: any): ScheduledTask {
   return {
     id: row.id,
     sessionId: row.session_id,
+    wxUserId: row.wx_user_id,
     prompt: row.prompt,
     scheduleType: row.schedule_type,
     scheduleValue: row.schedule_value,
@@ -64,6 +65,8 @@ export function initTasksTable(db: any): void {
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_tasks_channel ON scheduled_tasks(channel_type, channel_id)`,
   );
+  // Migration: add wx_user_id if upgrading from older schema
+  addColumnIfNotExists(db, 'scheduled_tasks', 'wx_user_id', 'TEXT');
 }
 
 /**
@@ -96,6 +99,7 @@ export function createScheduledTask(
   nextRun: number,
   channelType?: ChannelType,
   channelId?: string,
+  wxUserId?: string,
 ): ScheduledTask {
   const db = getDb();
   const now = Date.now();
@@ -116,13 +120,14 @@ export function createScheduledTask(
 
   const stmt = db.prepare(`
         INSERT INTO scheduled_tasks
-        (id, session_id, prompt, schedule_type, schedule_value, status, next_run, run_count, created_at, updated_at, channel_type, channel_id)
-        VALUES (?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)
+        (id, session_id, wx_user_id, prompt, schedule_type, schedule_value, status, next_run, run_count, created_at, updated_at, channel_type, channel_id)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)
     `);
 
   stmt.run(
     id,
     sessionId,
+    wxUserId || null,
     prompt,
     scheduleType,
     scheduleValue,
@@ -136,6 +141,7 @@ export function createScheduledTask(
   return {
     id,
     sessionId,
+    wxUserId,
     prompt,
     scheduleType,
     scheduleValue,

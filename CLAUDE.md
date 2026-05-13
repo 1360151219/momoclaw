@@ -4,32 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**MomoClaw** is a minimal AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety. The codebase is intentionally small to be easy to understand and modify.
+**MomoClaw** is a minimal AI assistant with container isolation. It runs Claude AI in isolated Docker containers for safety, using the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`). The codebase is intentionally small to be easy to understand and modify.
 
 ## Architecture
 
 ### Two-Component Structure
 
 ```
-Host (CLI / Bot Interfaces)
-    ↓ spawns Docker container
-Container (AI Agent)
+Host (CLI / Feishu / Weixin)
+    ↓ spawns Docker container per session
+Container (Claude Agent SDK)
     ↓ uses
-Claude Agent SDK + Anthropic API
+Anthropic API + MCP servers
 ```
+
+The Host orchestrates sessions and channels. Each session gets a long-running Docker container (idle timeout: 30 min). The Container runs the Claude Agent SDK with MCP servers for article fetching, cron scheduling, GitHub, etc.
 
 ### Key Directories
 
-- `host/` - Host application (TypeScript, Node.js)
+- `host/` - Host application (TypeScript, Node.js, ESM)
   - `src/cli/` - Interactive CLI interface
-  - `src/core/` - Core chat service and session management
-  - `src/feishu/` - Feishu (Lark) bot integration
-  - `src/weixin/` - Weixin (WeChat) bot integration
-  - `src/cron/` - Scheduled task system
-  - `src/db/` - SQLite database layer
-  - `src/mcp/` - MCP server implementation
-- `container/` - AI agent that runs inside Docker (TypeScript, Node.js)
-  - `src/mcp/` - Article fetcher MCP service
+  - `src/core/` - Chat service, session queue, command executor
+  - `src/feishu/` - Feishu (Lark) bot (WebSocket via official SDK)
+  - `src/weixin/` - Weixin (WeChat) bot (long polling)
+  - `src/cron/` - Scheduled task scheduler, executor, and channel-based result routing
+  - `src/db/` - SQLite layer (better-sqlite3, WAL mode)
+  - `src/mcp/` - Host-side MCP server (Express + SSE)
+- `container/` - AI agent Docker image (TypeScript, Node.js, Alpine)
+  - `src/mcp/` - Article fetcher MCP service + container-side MCP routing
 - `workspace/` - Mounted to containers as `/workspace/files` (read-write)
 
 ## Commands
@@ -37,194 +39,140 @@ Claude Agent SDK + Anthropic API
 ### Root Package Scripts
 
 ```bash
-npm run setup          # Install dependencies for both host and container
-npm run build          # Compile TypeScript for both host and container
-npm run build:container # Build Docker image
-npm run start          # Run the host CLI
-npm run chat           # Start chat mode
+npm run setup             # Install deps for both + build host + build Docker image
+npm run build             # Build host + build Docker image
+npm run build:host        # Build host only (tsc)
+npm run build:container   # Build container only (tsc)
+npm run build:docker      # Build Docker image (linux/amd64)
+npm run build:docker-linux # Build + push Docker image to Aliyun registry
+npm run start             # Start host CLI (default chat)
+npm run start:feishu      # Start Feishu bot only
+npm run start:weixin      # Start Weixin bot only
+npm run start:all         # Start all configured channel bots
 ```
 
 ### Host Package Scripts
 
 ```bash
 cd host
-npm run build          # Build host
-npm run dev            # Run with tsx (no build needed)
-npm run test           # Run tests with vitest
-npm run test:watch     # Run tests in watch mode
-npm run test:coverage  # Run tests with coverage
+npm run build             # tsc
+npm run dev               # Run with tsx (no build needed)
+npm run test              # vitest run
+npm run test:watch        # vitest (watch mode)
+npm run test:coverage     # vitest run --coverage
 ```
 
 ### Host CLI Commands
 
-From the `host/` directory:
+From the `host/` directory (after building):
 
 ```bash
-# Build first
-cd host && npm run build
-
-# Session management
-node dist/index.js new <sessionId>      # Create new session
-node dist/index.js list|ls               # List all sessions
-node dist/index.js switch <sessionId>    # Switch to session
-node dist/index.js delete <sessionId>    # Delete session
-
-# Chat
-node dist/index.js chat [sessionId]      # Start interactive chat
-node dist/index.js                        # Default: interactive chat
-
-# Build container image
-node dist/index.js build
-
-# Bot modes
-node dist/index.js feishu                 # Start Feishu (Lark) bot
-node dist/index.js weixin                 # Start Weixin (WeChat) bot
+node dist/index.js                    # Interactive chat (uses active or "default" session)
+node dist/index.js chat [sessionId]   # Start interactive chat
+node dist/index.js build              # Build Docker image
+node dist/index.js feishu             # Start Feishu bot
+node dist/index.js weixin             # Start Weixin bot
+node dist/index.js all                # Start all configured channel bots simultaneously
 ```
 
 ### Interactive Chat Commands
 
-Within chat mode:
-- `/model <name>` - Switch model (e.g., `anthropic/claude-3-5-sonnet-20241022`)
+- `/model <name>` - Switch model
 - `/system <prompt>` - Update system prompt
-- `/memory` - View today's memory and available dates
+- `/memory` - View today's memory
 - `/memory <date>` - View memory for specific date
 - `/clear` - Clear session history
+- `/new` - Create a new session
+- `/history` - View session message history
 - `/exit` - Quit
 
-## Key Features
-
-### AIEOS Protocol (AI Personas)
-
-MiniClaw uses an AIEOS-inspired system prompt loading:
-- `workspace/memory/SOUL.md` - AI identity and personality
-- `workspace/memory/USER.md` - User preferences and context
-- These are automatically loaded and merged into the system prompt
-
-### Daily Memory System
-
-- Organized by date in `workspace/memory/YYYY-MM-DD/MEMORY.md`
-- AI can read/write memory files to remember important information
-- Recent memory (today + yesterday if available) is automatically provided in context
-- `/memory` command to view and manage memory
-
-### Real-time Thinking & Tool Events
-
-The UI displays events in the order they happen:
-- 💭 Thinking - AI's internal thought process
-- 🔧 Tool Use - What tool the AI is using
-- ✅ Tool Result - Result of the tool execution
-
-### Self-Access to Code
-
-The project code is mounted read-only at `/workspace/project` inside containers:
-- AI can read its own implementation
-- Code modifications require manual copying from the host
-
-### Weixin (WeChat) Bot Integration
-
-The project includes a Weixin bot implementation with these key features:
-- **QR Code Login**: Terminal-based QR code scanning for bot authentication
-- **Long Polling**: Real-time message receiving via getUpdates endpoint (35s timeout)
-- **Context Token Management**: Each user's latest context_token is stored and used for replies
-- **Media Decryption**: AES-128-ECB decryption for CDN-hosted images
-- **Typing Indicator**: Sends "typing" status while waiting for LLM responses
-- **User Isolation**: Each Weixin user gets their own session mapped as `wx_<userId>`
-
-Architecture layers:
-- `weixin/client.ts` - API auth, QR login, request headers
-- `weixin/gateway.ts` - Long polling connection and message pulling
-- `weixin/crypto.ts` - AES-128-ECB decryption for media files
-- `weixin/bot.ts` - Business logic layer, converts Weixin messages to standard format
-
-### MCP (Model Context Protocol) Services
-
-- **Host MCP Server**: Runs on port 51506
-- **Article Fetcher**: Container-side MCP service for fetching articles from platforms like Zhihu, WeChat, Juejin, CSDN, etc.
-
-## Development Workflow
-
-### Setup
-
-```bash
-npm run setup
-cd host
-cp .env.example .env
-# Edit .env with ANTHROPIC_API_KEY
-```
-
-### Build
-
-```bash
-npm run build
-npm run build:container  # Or: cd host && node dist/index.js build
-```
-
-### Run
-
-```bash
-npm run chat
-```
-
-### TypeScript Configuration
-
-Both host and container use:
-- Target: ES2022
-- Module: NodeNext (ES Modules)
-- Strict: true
-- Output: `./dist`
+Same slash commands work across Feishu and Weixin channels via `host/src/core/commands/executor.ts`.
 
 ## Core Architecture Details
 
-### Data Flow
+### Data Flow (per message)
 
-1. User input → Host CLI (`host/src/index.ts`)
-2. Message saved to SQLite (`host/src/db.ts`)
-3. Host spawns Docker container (`host/src/container.ts`)
-4. Container reads payload, uses Claude Agent SDK (`container/src/index.ts`)
-5. Result streamed back, saved to DB
+1. User input arrives via CLI, Feishu WebSocket, or Weixin long polling
+2. `processChat()` in `host/src/core/chatService.ts` enqueues via `SessionQueue` (per-session serialization)
+3. User message saved to SQLite
+4. `ContainerManager.getOrStartContainer()` starts/reuses a Docker container
+5. `AgentRunner.run()` writes payload to input file, runs `docker exec`, streams stdout (text + tool events via `__TOOL_EVENT__:` marker protocol)
+6. Container reads payload, runs Claude Agent SDK with `resume` if `claudeSessionId` exists
+7. Result written to output JSON file, parsed by host, assistant message saved to DB
+8. Channel context attached to payload for cron task result routing
 
-### Session Management
+### Container Lifecycle
 
-Sessions are stored in SQLite (`host/data/miniclaw.db`):
-- Each session has independent history and configuration
-- Session state is maintained through SQLite message history
-- Only one session is active at a time
-
-### Container Isolation
-
-- `/workspace/files` - User workspace (rw, from host/workspace)
-- `/workspace/project` - Project source code (ro, from project root)
-- Temp input/output directories created per-run
+- **Startup**: `ContainerManager` creates a Docker container with `tail -f /dev/null` as the long-running process
+- **Per-run**: `AgentRunner` uses `docker exec` to invoke `node /app/dist/index.js` with env vars for input/output paths
+- **Idle cleanup**: After 30 min of inactivity, the container runs an auto-summary SOP (via `SessionQueue`) to save memories, then the container is destroyed
+- **Graceful shutdown**: All containers destroyed on SIGINT/SIGTERM/exit
+- Mounts: `/workspace/files` (rw), `projects/momoclaw` (rw), `/workspace/session_tmp` (rw), `~/.claude` (rw, Claude SDK state)
 - Resource limits: 2GB memory, 2 CPUs
-- Auto-removed after exit
 
-### Container Shell Configuration
+### SessionQueue (per-session serialization)
 
-The container includes bash and sets `SHELL=/bin/bash` for Claude Agent SDK
+`host/src/core/sessionQueue.ts` — Ensures messages in the same session are processed sequentially (FIFO), preventing concurrent Docker exec calls on the same container. Different sessions run concurrently.
 
-### Configuration
+### Claude Agent SDK Resume Mechanism
 
-Environment variables (`host/.env`):
+The container uses the SDK's `resume` option with `claudeSessionId` to restore conversation context across runs. The session ID is persisted in the database (`sessions.claudeSessionId`). Messages array in the payload is empty — the SDK loads history from its own persistence layer.
+
+When the SDK compacts context (`compact_boundary` event), the container extracts the compacted summary and the host saves it via `updateSessionSummary()`.
+
+### Container MCP Servers
+
+Inside the container, the agent has access to:
+- `momoclaw_mcp` — Article fetcher (local, `container/src/mcp/`)
+- `host_mcp` — Host MCP server via SSE (cron task scheduling, listing, deletion)
+- `context7` — Context7 API (HTTP)
+- `bilibili` — Bilibili MCP server (local process)
+- `github` — GitHub MCP server (local process)
+
+### Host MCP Server
+
+`host/src/mcp/server.ts` — Express server on `HOST_MCP_PORT` (default 51506). Exposes SSE endpoint that creates per-session MCP servers with tools: `schedule_task`, `list_scheduled_tasks`, `delete_task`. Each SSE connection gets a session-specific MCP server, allowing the container's agent to manage cron tasks.
+
+### Cron System
+
+Three schedule types: `cron` (cron-parser expressions), `interval` (seconds), `once` (millisecond timestamp).
+
+- `CronService` (`host/src/cron/scheduler.ts`) polls every 30s for due tasks, executes them via `SessionQueue` + Docker container
+- `channelRegistry` (`host/src/cron/sender.ts`) routes task results back to originating channels (Feishu, Weixin, terminal)
+- `executeCronActions()` (`host/src/cron/executor.ts`) handles cron tool calls from the container (create/list/pause/resume/delete tasks)
+- Each `ChannelHandler` implements `sendMessage()` and `isAvailable()` for result push
+
+### Channel Architecture
+
+All channels (CLI, Feishu, Weixin) use the same `processChat()` function in `chatService.ts`. Each provides:
+- A `Session` (created/retrieved from SQLite)
+- A `ChannelContext` with `type` and `channelId` for cron result routing
+- Optional streaming/text callbacks (`onChunk`, `onToolEvent`)
+
+Feishu uses the official Lark SDK (`@larksuiteoapi/node-sdk`) with WebSocket event dispatching and streaming card updates. Weixin uses long polling with QR code login, image decryption (AES-128-ECB), and context token management.
+
+## Configuration
+
+Environment variables in `host/.env` (copy from `host/.env.example`):
+
 ```bash
-# API Keys (at least one required)
-ANTHROPIC_API_KEY=          # Required for Anthropic models
-ANTHROPIC_BASE_URL=         # Optional (for Kimi, etc.)
-OPENAI_API_KEY=             # Optional for OpenAI-compatible models
-OPENAI_BASE_URL=            # Optional
+# Required
+ANTHROPIC_API_KEY=
 
-# Default Settings
+# Optional overrides
+ANTHROPIC_BASE_URL=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
 MODEL=anthropic/claude-3-5-sonnet-20241022
 MAX_TOKENS=4096
 WORKSPACE_DIR=./workspace
-CONTAINER_TIMEOUT=300000
-DB_PATH=./data/miniclaw.db
-DEFAULT_SYSTEM_PROMPT=
-
-# Optional: Additional API keys
+CONTAINER_TIMEOUT=172800000   # default 2 days in ms
+DB_PATH=./data/momoclaw.db
+HOST_MCP_PORT=51506
 GITHUB_TOKEN=
 CONTEXT7_API_KEY=
 
-# Feishu (Lark) Bot Configuration (optional)
+# Feishu Bot (optional)
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
 FEISHU_DOMAIN=feishu
@@ -232,44 +180,40 @@ FEISHU_ENCRYPT_KEY=
 FEISHU_VERIFICATION_TOKEN=
 FEISHU_AUTO_REPLY_GROUPS=
 
-# Weixin (WeChat) Bot Configuration (optional)
+# Weixin Bot (optional)
 WEIXIN_BASE_URL=https://ilinkai.weixin.qq.com
 WEIXIN_CDN_BASE_URL=https://novac2c.cdn.weixin.qq.com/c2c
 ```
+
+Note: Currently only the Anthropic provider works end-to-end — the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) does not support OpenAI models.
+
+### Model Format
+
+Models are specified as `provider/model-name`:
+- `anthropic/claude-sonnet-4-6`
+- `anthropic/claude-3-5-sonnet-20241022`
+- `openai/kimi-latest` (host config only, SDK won't use it)
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `host/src/index.ts` | Main entry point, CLI and bot command routing |
-| `host/src/config.ts` | Environment configuration loading |
-| `host/src/container.ts` | Docker container orchestration |
-| `host/src/core/chatService.ts` | Core chat orchestration |
-| `host/src/db/` | SQLite session/message/task storage |
-| `host/src/cron/` | Scheduled task system |
-| `host/src/feishu/` | Feishu (Lark) bot integration |
-| `host/src/weixin/client.ts` | Weixin API client and auth |
-| `host/src/weixin/gateway.ts` | Weixin long polling message gateway |
-| `host/src/weixin/crypto.ts` | Weixin media decryption (AES-128-ECB) |
-| `host/src/weixin/bot.ts` | Weixin bot business logic |
-| `host/src/cli/ui.ts` | CLI UI components and event display |
-| `container/src/index.ts` | Claude Agent SDK integration |
-| `container/src/mcp/article-fetcher.ts` | Article fetching MCP service |
-| `host/src/types.ts`, `container/src/types.ts` | Type definitions |
-
-## Model Format
-
-Models are specified as `provider/model-name`:
-- `anthropic/claude-3-5-sonnet-20241022
-- `anthropic/claude-3-opus-20240229
-- `openai/kimi-latest
-- `openai/gpt-4
-
-Note: Currently only Anthropic provider is fully supported by the Claude Agent SDK.
-
-## Reference Documentation
-
-- `README.md` - Quick start guide (Chinese)
-- `openclaw-architecture-report.md` - Comprehensive architecture reference (Chinese)
-- `从0到1教你实现一个自己的OpenClaw.md` - Step-by-step tutorial (Chinese)
-- `nanoclaw/README.md` - Full NanoClaw documentation (English)
+| `host/src/index.ts` | Main entry: CLI routing, bot startup, graceful shutdown |
+| `host/src/config.ts` | Env loading, provider resolution (`getApiConfig`) |
+| `host/src/container.ts` | `ContainerManager` (lifecycle), `AgentRunner` (exec), idle cleanup |
+| `host/src/core/chatService.ts` | `processChat()` — platform-agnostic message processing |
+| `host/src/core/sessionQueue.ts` | Per-session FIFO queue to serialize container access |
+| `host/src/core/commands/executor.ts` | Shared slash command handler across channels |
+| `host/src/cron/scheduler.ts` | `CronService` — poll, execute, calculate next run |
+| `host/src/cron/executor.ts` | Processes cron tool calls from container |
+| `host/src/cron/sender.ts` | `channelRegistry` — routes task results to channels |
+| `host/src/mcp/server.ts` | Host MCP server (SSE), exposes cron tools to container |
+| `host/src/db/connection.ts` | SQLite init (WAL, foreign keys, all table creation) |
+| `host/src/cli/index.ts` | Interactive terminal chat loop |
+| `host/src/feishu/gateway.ts` | WebSocket event dispatch, streaming card updates |
+| `host/src/feishu/bot.ts` | Feishu message → processChat bridge, image download |
+| `host/src/weixin/gateway.ts` | Long polling, image decryption, message unification |
+| `host/src/weixin/bot.ts` | Weixin message → processChat bridge |
+| `container/src/index.ts` | Container entry: reads payload, runs SDK, writes result |
+| `container/src/mcp/server.ts` | Article fetcher MCP implementation |
+| `host/src/types.ts` | All shared TypeScript types |

@@ -50,3 +50,24 @@ export {
   getChatBySession,
   type FeishuMapping,
 } from './channels/feishuMappings.js';
+
+// Weixin user operations
+export {
+  registerWeixinUser,
+  getWeixinUser,
+  listWeixinUsers,
+  updateWeixinUserStatus,
+  updateWeixinUserToken,
+  deleteWeixinUser,
+  type WeixinUserRow,
+} from './weixinUsers.js';
+
+// Weixin mapping operations
+export {
+  getMapping as getWeixinMapping,
+  setMapping as setWeixinMapping,
+  deleteMapping as deleteWeixinMapping,
+  listMappingsByWxUser,
+  getSessionByMapping,
+  type WeixinMapping,
+} from './weixinMappings.js';

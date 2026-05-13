@@ -5,6 +5,8 @@ import { initSessionsTable } from './sessions.js';
 import { initMessagesTable } from './messages.js';
 import { initTasksTable, initTaskRunLogsTable } from './tasks.js';
 import { initFeishuMappingsTable } from './channels/feishuMappings.js';
+import { initWeixinUsersTable } from './weixinUsers.js';
+import { initWeixinMappingsTable } from './weixinMappings.js';
 
 let db: Database.Database | null = null;
 
@@ -22,6 +24,8 @@ export function initDatabase(dbPath: string): Database.Database {
   initTasksTable(db);
   initTaskRunLogsTable(db);
   initFeishuMappingsTable(db);
+  initWeixinUsersTable(db);
+  initWeixinMappingsTable(db);
 
   return db;
 }
@@ -31,4 +35,19 @@ export function getDb(): Database.Database {
     throw new Error('Database not initialized');
   }
   return db;
+}
+
+/**
+ * Safe migration helper: add a column only if it doesn't already exist.
+ */
+export function addColumnIfNotExists(
+  db: any,
+  table: string,
+  column: string,
+  columnDef: string,
+): void {
+  const info = db.pragma(`table_info(${table})`) as any[];
+  if (!info.some((col: any) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${columnDef}`);
+  }
 }
