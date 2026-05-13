@@ -232,6 +232,7 @@ class ContainerManager {
       writeFileSync(claudeJsonPath, '{}');
     }
     chmodSync(claudeJsonPath, 0o666);
+    const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
     const containerName = `momoclaw-${sanitizedSessionId}`;
 
     // 清理可能存在的残留同名容器（同步，确保完成后再创建）

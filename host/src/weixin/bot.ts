@@ -1,5 +1,5 @@
 import { WeixinGateway } from './gateway.js';
-import type { UnifiedMessage } from './types.js';
+import type { UnifiedMessage, WeixinConfig } from './types.js';
 import { processChat } from '../core/chatService.js';
 import {
   getSession,
