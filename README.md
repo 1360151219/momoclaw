@@ -55,6 +55,14 @@ npm run start
 npm run chat
 ```
 
+### 4. 定时任务
+
+推荐创建 `daily-greeting` skill 定时任务，每天早上 8:30 调用。
+
+```
+帮我创建一个定时任务，每天早上 8:30 调用 `daily-greeting` skill。
+```
+
 ## ☁️ 服务器部署 (PM2)
 
 如果您希望在服务器上长期后台运行（例如运行飞书或微信机器人），推荐使用 [PM2](https://pm2.keymetrics.io/) 来管理进程。项目中已经为您配置好了 `ecosystem.config.js`。
@@ -79,6 +87,9 @@ pm2 start npm --name "momoclaw-feishu" -- run start:feishu
 
 # 启动微信机器人
 pm2 start npm --name "momoclaw-weixin" -- run start:weixin
+
+# 启动飞书/微信机器人
+pm2 start npm --name "momoclaw" -- run start:all
 ```
 
 ### 3. 常用 PM2 管理命令
@@ -117,21 +128,16 @@ node host/dist/index.js delete <id>        # 删除会话
 
 ## 🤖 模型配置
 
-MomoClaw 支持以下两种主要 Provider 格式：
+MomoClaw 支持:
 
 **1. Claude 模型**
 - `anthropic/claude-3-5-sonnet-20241022`
 - `anthropic/claude-3-opus-20240229`
 
-**2. OpenAI 兼容模型**
-- `openai/kimi-latest`
-- `openai/gpt-4`
-
 您可以在 `.env` 文件中设置默认模型：
 ```env
 MODEL=anthropic/claude-3-5-sonnet-20241022
 ```
-也可以在对话中随时切换：`/model openai/kimi-latest`
 
 ## 📁 目录结构
 
@@ -143,31 +149,6 @@ momoclaw/
 ├── data/           # 数据目录 (SQLite 数据库文件存储)
 └── .env            # 环境变量配置
 ```
-
-## 🌐 MCP 文章抓取服务
-
-MomoClaw 容器内置了 MCP (Model Context Protocol) 服务，支持抓取国内主流平台文章：
-
-**支持平台**: 知乎专栏、微信公众号、掘金、CSDN、博客园、B站专栏等。
-
-### CLI 命令行工具测试
-
-您可以进入 `container` 目录测试抓取能力：
-
-```bash
-cd container
-
-# 抓取文章
-node dist/fetch-article-cli.js <url>
-
-# 输出为 JSON 格式
-node dist/fetch-article-cli.js <url> --format=json
-
-# 仅获取文章摘要
-node dist/fetch-article-cli.js <url> --summary
-```
-
-详细说明请参考 [container/ARTICLE_FETCHER.md](container/ARTICLE_FETCHER.md)。
 
 ## 🔒 安全说明
 

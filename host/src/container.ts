@@ -1,5 +1,12 @@
 import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, rmSync, chmodSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  chmodSync,
+  readdirSync,
+} from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
@@ -91,11 +98,11 @@ class ContainerManager {
       const apiConfig = getApiConfig(config, session.model || undefined);
 
       // 我们不通过 processChat，而是直接调用 agentRunner.run，
-      // 这样这条指令和回复就不会污染数据库中的 user/assistant 聊天记录
+      // 这样这条指令和回复就不会污染数据库中的 user/assistant 聊天记录。
       const payload: PromptPayload = {
         session,
         messages: [],
-        userInput: `[System] 当前会话闲置超时，即将被系统回收。请立即启用你的 memory skill（记忆技能），自行评估本次会话的上下文：\n1. 判断是否有重要的新知识、未解决的待办事项、环境事实或错误解决经验。\n2. 如果有，请直接使用该 skill 将这些高价值信息进行沉淀和保存。\n3. 如果没有需要记录的内容，请直接结束。\n\n完成上述评估或操作后，请简要回复“已完成”。\n\n注意：这只是一条系统后台静默指令，请直接执行，不要有任何多余的寒暄。`,
+        userInput: `[System] idle-sop — 当前会话闲置超时，即将被系统回收。请立即启用你的 idle-sop skill。`,
         apiConfig,
       };
 
@@ -146,6 +153,30 @@ class ContainerManager {
     clearInterval(this.cleanupInterval);
   }
 
+  /**
+   * 递归设置目录和文件权限，确保容器内不同 UID 的用户也能读写
+   */
+  private chmodRecursive(dirPath: string): void {
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(dirPath, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            chmodSync(fullPath, 0o777);
+            this.chmodRecursive(fullPath);
+          } else {
+            chmodSync(fullPath, 0o666);
+          }
+        } catch {
+          // 跳过无法修改权限的文件
+        }
+      }
+    } catch {
+      // 跳过无法读取的目录
+    }
+  }
+
   public async getOrStartContainer(
     sessionId: string,
   ): Promise<ActiveContainer> {
@@ -170,6 +201,30 @@ class ContainerManager {
     [workspacePath, tempDir, sessionDir, claudeDir, skillsDir].forEach((dir) =>
       ensureDirWithPerms(dir),
     );
+
+    // 确保 workspace 下的关键子目录存在且有正确权限
+    // 避免容器内 node 用户因 UID 不匹配导致 Permission denied
+    const criticalSubDirs = [
+      'memory',
+      'temp',
+      'credentials',
+      'temp/feishu-images',
+      'temp/downloads',
+    ];
+    for (const sub of criticalSubDirs) {
+      ensureDirWithPerms(join(workspacePath, sub));
+    }
+
+    // 递归修正 workspace 目录下所有文件和文件夹的权限
+    // 解决 Linux 服务器上宿主机 UID 与容器 node 用户 UID 不匹配的问题
+    try {
+      this.chmodRecursive(workspacePath);
+    } catch (err) {
+      console.warn(
+        '[ContainerManager] 递归修正 workspace 权限时出现警告:',
+        err,
+      );
+    }
 
     // Ensure .claude.json exists before mounting to avoid Docker creating it as a directory
     const claudeJsonPath = join(claudeDir, '.claude.json');
@@ -288,7 +343,7 @@ class AgentRunner {
     // outputFile will be created by the container, no need to chmodSync here
 
     const hostMcpPort = config.hostMcpPort;
-    const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}/sse`;
+    const hostMcpUrl = `http://host.docker.internal:${hostMcpPort}`;
 
     const dockerArgs = [
       'exec',
@@ -362,6 +417,9 @@ class AgentRunner {
 
       const timeoutId = setTimeout(() => {
         child.kill('SIGTERM');
+        console.error(
+          `Container timeout after ${config.containerTimeout}ms, killing process ${child.pid}`,
+        );
         reject(
           new Error(`Container timeout after ${config.containerTimeout}ms`),
         );

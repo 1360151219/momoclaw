@@ -1,17 +1,18 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 import { initSessionsTable } from './sessions.js';
 import { initMessagesTable } from './messages.js';
 import { initTasksTable, initTaskRunLogsTable } from './tasks.js';
 import { initFeishuMappingsTable } from './channels/feishuMappings.js';
 import { initWeixinUsersTable } from './weixinUsers.js';
 import { initWeixinMappingsTable } from './weixinMappings.js';
+import { initChannelMappingsTable } from './channels/channelMappings.js';
 
 let db: Database.Database | null = null;
 
 export function initDatabase(dbPath: string): Database.Database {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  ensureDirWithPerms(dirname(dbPath));
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
@@ -26,6 +27,7 @@ export function initDatabase(dbPath: string): Database.Database {
   initFeishuMappingsTable(db);
   initWeixinUsersTable(db);
   initWeixinMappingsTable(db);
+  initChannelMappingsTable(db);
 
   return db;
 }

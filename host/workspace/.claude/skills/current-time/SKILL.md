@@ -5,7 +5,8 @@ description: >
   Auto-trigger when needing to know current time, date, or day of week — including when
   guessing user's location based on schedule, answering "what time is it", "what day is it",
   "today is what date", or any context where accurate real-time clock data is needed.
-  Also trigger proactively at the start of conversations to ground yourself in the current time.
+  Do not trigger proactively at the start of conversations. Only use this skill when the
+  user's request or the task truly depends on accurate real-time clock data.
 ---
 
 # Current Time

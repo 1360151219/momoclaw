@@ -5,6 +5,7 @@ import { extractImageDownloadParams, decryptAesEcb } from './crypto.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 
 export class WeixinGateway extends EventEmitter {
   private client: WeixinClient;

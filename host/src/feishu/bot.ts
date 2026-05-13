@@ -14,10 +14,11 @@ import { processChat } from '../core/chatService.js';
 import type { Session, ChannelContext } from '../types.js';
 import { getOrCreateSession } from './commands.js';
 import type { CommandContext } from './commands.js';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
+import { ensureDirWithPerms } from '../hooks/utils.js';
 import { useThrottleFn } from '../hooks/throttle.js';
-
+import { logger } from './logger.js';
+const log = logger('feishu:bot');
 interface FeishuChatOptions {
   feishuConfig: FeishuConfig;
 }
@@ -52,9 +53,7 @@ async function downloadAndSaveImage(
 ): Promise<{ hostPath: string; containerPath: string } | null> {
   // Save to workspaceDir so it's accessible from container
   const tempDir = resolve(config.workspaceDir, 'temp', 'feishu-images');
-  if (!existsSync(tempDir)) {
-    mkdirSync(tempDir, { recursive: true });
-  }
+  ensureDirWithPerms(tempDir);
 
   const fileName = `${Date.now()}_${image.fileKey}.jpg`;
   const hostPath = join(tempDir, fileName);
@@ -181,6 +180,7 @@ async function handleStreamingMessage(
         }
       },
     });
+    log.info(`Agent response: ${JSON.stringify(result, null, 2)}`);
 
     if (result.success) {
       await updater.finalize({

@@ -38,13 +38,19 @@ export function findProjectRoot(startPath: string): string {
 
 /**
  * 确保目录存在并赋予指定权限
+ * 使用 recursive: true 创建时，中间目录可能受 umask 影响权限不足，
+ * 因此对路径上每一级新建目录都显式设置权限
  */
 export function ensureDirWithPerms(
   dirPath: string,
   mode: number = 0o777,
 ): void {
   if (!existsSync(dirPath)) {
-    mkdirSync(dirPath, { recursive: true });
+    mkdirSync(dirPath, { recursive: true, mode });
   }
-  chmodSync(dirPath, mode);
+  try {
+    chmodSync(dirPath, mode);
+  } catch {
+    // 权限修改失败时静默处理，避免阻断主流程
+  }
 }

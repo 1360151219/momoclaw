@@ -10,7 +10,20 @@ RUN apk update && apk add \
     bash \
     build-base \
     clang \
-    compiler-rt
+    compiler-rt \
+    \
+    # --- Browser automation (headless Chromium) ---
+    # Keep this minimal for 2GB RAM servers:
+    # - chromium: browser binary
+    # - nss/ca-certificates: TLS/HTTPS support
+    # - freetype/harfbuzz: basic font rendering
+    # - font-noto-cjk: High-quality Chinese/Japanese/Korean font rendering
+    chromium \
+    nss \
+    ca-certificates \
+    freetype \
+    harfbuzz \
+    font-noto-cjk
 
 # Set CC to clang for uv managed python
 ENV CC=clang
@@ -40,8 +53,11 @@ RUN npm ci --include=dev --registry=https://registry.npmmirror.com
 COPY --chown=node:node src/ ./src/
 RUN npm run build
 
-# 创建workspace目录
+# 创建workspace目录及关键子目录，确保权限宽松以兼容不同 UID 的宿主机挂载
 RUN mkdir -p /workspace/files /workspace/input /workspace/output /workspace/tmp \
+    /workspace/files/memory /workspace/files/memory/sessions \
+    /workspace/files/temp /workspace/files/temp/feishu-images /workspace/files/temp/downloads \
+    /workspace/files/credentials \
     && chown -R node:node /workspace \
     && chmod -R 777 /workspace
 
@@ -52,6 +68,11 @@ USER node
 
 # 设置环境变量
 ENV NODE_ENV=production
+# 直接复用容器内已安装的 Chromium，避免 Puppeteer 去 node 用户缓存目录里找它自己的 Chrome。
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# 一些依赖库会优先读取 CHROME_PATH，这里一并对齐，减少兼容性问题。
+ENV CHROME_PATH=/usr/bin/chromium-browser
 # 指定 uv tool 安装目录为 node 用户的主目录
 ENV UV_TOOL_DIR=/home/node/.local/share/uv/tools
 # 指定 uv tool 产生的全局命令链接目录

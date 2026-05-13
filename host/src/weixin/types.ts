@@ -97,6 +97,40 @@ export interface BotTokenInfo {
   ret?: number | undefined;
 }
 
+/**
+ * getuploadurl 接口的请求参数
+ * 用于向微信服务器请求文件上传地址
+ */
+export interface GetUploadUrlRequest {
+  filekey: string;
+  media_type: UploadMediaType;
+  to_user_id: string;
+  rawsize: number;
+  rawfilemd5: string;
+  filesize: number;
+  no_need_thumb?: boolean;
+  aeskey?: string;
+}
+
+/**
+ * getuploadurl 接口的响应
+ */
+export interface GetUploadUrlResponse {
+  ret?: number;
+  upload_param: string;
+  upload_full_url?: string;
+}
+
+/**
+ * 媒体上传结果
+ * 包含上传后的 CDN 引用信息，可直接用于构建图片消息
+ */
+export interface UploadMediaResult {
+  media: CDNMedia;
+  aesKey: Buffer;
+  encryptedFileSize: number;
+}
+
 // Extracted / unified internal message for our bot logic
 export interface UnifiedMessage {
   chatId: string; // usually the from_user_id
