@@ -4,7 +4,6 @@ import { ensureDirWithPerms } from '../hooks/utils.js';
 import { initSessionsTable } from './sessions.js';
 import { initMessagesTable } from './messages.js';
 import { initTasksTable, initTaskRunLogsTable } from './tasks.js';
-import { initFeishuMappingsTable } from './channels/feishuMappings.js';
 import { initWeixinUsersTable } from './weixinUsers.js';
 import { initWeixinMappingsTable } from './weixinMappings.js';
 import { initChannelMappingsTable } from './channels/channelMappings.js';
@@ -24,7 +23,6 @@ export function initDatabase(dbPath: string): Database.Database {
   initMessagesTable(db);
   initTasksTable(db);
   initTaskRunLogsTable(db);
-  initFeishuMappingsTable(db);
   initWeixinUsersTable(db);
   initWeixinMappingsTable(db);
   initChannelMappingsTable(db);

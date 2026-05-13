@@ -43,15 +43,6 @@ export {
   getDatabaseStats,
 } from './tasks.js';
 
-// 通用渠道映射（飞书/微信/未来渠道统一使用）
-export {
-  getMapping,
-  setMapping,
-  deleteMapping,
-  listMappings,
-  getChatBySession,
-  type FeishuMapping,
-} from './channels/feishuMappings.js';
 
 // Weixin user operations
 export {
