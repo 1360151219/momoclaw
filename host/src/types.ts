@@ -117,6 +117,7 @@ export type ChannelType = 'feishu' | 'terminal' | 'weixin';
 export interface ChannelContext {
   type: ChannelType;
   channelId: string; // feishu: chat_id, terminal: session_id, web: ws_connection_id
+  wxUserId?: string; // weixin: which WeixinUser (接入用户) this message belongs to
 }
 
 export interface ChannelHandler {

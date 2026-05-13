@@ -1,7 +1,12 @@
 import { WeixinGateway } from './gateway.js';
-import type { WeixinConfig, UnifiedMessage } from './types.js';
+import type { UnifiedMessage } from './types.js';
 import { processChat } from '../core/chatService.js';
-import { getSession, createSession } from '../db/index.js';
+import {
+  getSession,
+  createSession,
+  getSessionByMapping,
+  setWeixinMapping,
+} from '../db/index.js';
 import type { Session, ChannelContext } from '../types.js';
 import { config } from '../config.js';
 import { parseCommand } from '../utils/command.js';
@@ -10,18 +15,16 @@ import {
   type BaseCommandContext,
 } from '../core/commands/executor.js';
 
-export interface WeixinBotOptions {
-  weixinConfig: WeixinConfig;
-}
-
 export class WeixinBot {
   private gateway: WeixinGateway;
+  private wxUserId: string;
 
-  constructor(options: WeixinBotOptions) {
-    this.gateway = new WeixinGateway(options.weixinConfig);
+  constructor(gateway: WeixinGateway, wxUserId: string) {
+    this.gateway = gateway;
+    this.wxUserId = wxUserId;
   }
 
-  public async start() {
+  public async start(): Promise<void> {
     this.gateway.on('message', async (msg: UnifiedMessage) => {
       try {
         await this.handleMessage(msg);
@@ -33,24 +36,33 @@ export class WeixinBot {
     await this.gateway.start();
   }
 
-  private getOrCreateSession(chatId: string): Session {
-    const sessionId = `wx_${chatId}`;
+  private getOrCreateSession(fromUserId: string): Session {
+    const existingSessionId = getSessionByMapping(this.wxUserId, fromUserId);
+    if (existingSessionId) {
+      const session = getSession(existingSessionId);
+      if (session) return session;
+    }
+
+    const sessionId = `wx_${this.wxUserId}_${fromUserId}`;
     let session = getSession(sessionId);
     if (!session) {
       session = createSession(
         sessionId,
-        `Weixin Chat ${chatId}`,
-        config.defaultModel,
+        `Weixin Chat ${fromUserId}`,
+        config.defaultSystemPrompt,
+        undefined,
+        this.wxUserId,
       );
     }
+
+    setWeixinMapping(this.wxUserId, fromUserId, sessionId);
     return session;
   }
 
-  private async handleMessage(msg: UnifiedMessage) {
+  private async handleMessage(msg: UnifiedMessage): Promise<void> {
     console.log('[Weixin] Received message Before Handle:', msg);
     const session = this.getOrCreateSession(msg.chatId);
 
-    // Support commands
     if (msg.text) {
       const cmd = parseCommand(msg.text);
       if (cmd) {
@@ -60,7 +72,6 @@ export class WeixinBot {
           session: session,
         };
         const response = await coreExecuteCommand(cmd.command, baseContext);
-
         await this.gateway
           .getClient()
           .sendTextMessage(msg.chatId, response.text, msg.contextToken);
@@ -68,23 +79,21 @@ export class WeixinBot {
       }
     }
 
-    // Show typing indicator
     if (msg.chatId) {
       await this.gateway
         .getClient()
         .showTypingIndicator(msg.chatId, msg.contextToken);
     }
 
-    // Build user prompt
     let prompt = msg.text || '';
     if (msg.imageUrls && msg.imageUrls.length > 0) {
-      // Append image references so Claude can read them via container file system
       prompt += `\n[Images uploaded: ${msg.imageUrls.join(', ')}]`;
     }
 
     const channelContext: ChannelContext = {
       type: 'weixin',
       channelId: msg.chatId,
+      wxUserId: this.wxUserId,
     };
 
     let fullReply = '';
@@ -97,8 +106,8 @@ export class WeixinBot {
         onChunk: (chunk) => {
           fullReply += chunk;
         },
-        onToolEvent: (event) => {
-          // Could notify user that bot is using tools, but omitting to keep it clean
+        onToolEvent: (_event) => {
+          // tool events handled by core
         },
       });
 
@@ -119,7 +128,6 @@ export class WeixinBot {
           .sendTextMessage(msg.chatId, fullReply.trim(), currentToken);
       }
 
-      // Hide typing indicator after sending reply
       await this.gateway
         .getClient()
         .hideTypingIndicator(msg.chatId, currentToken);
@@ -136,9 +144,4 @@ export class WeixinBot {
         );
     }
   }
-}
-
-export async function startWeixinBot(options: WeixinBotOptions): Promise<void> {
-  const bot = new WeixinBot(options);
-  await bot.start();
 }

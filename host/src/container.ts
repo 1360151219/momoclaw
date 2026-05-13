@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, rmSync, chmodSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -128,7 +128,7 @@ class ContainerManager {
 
   private destroyContainer(container: ActiveContainer) {
     try {
-      spawn('docker', ['rm', '-f', container.containerName]);
+      spawnSync('docker', ['rm', '-f', container.containerName], { stdio: 'ignore' });
       rmSync(container.sessionDir, { recursive: true, force: true });
     } catch (err) {
       console.error(
@@ -155,14 +155,19 @@ class ContainerManager {
       return existing;
     }
 
-    const workspacePath = resolve(config.workspaceDir);
+    const workspaceRoot = resolve(config.workspaceDir);
+    const session = getSession(sessionId);
+    const accountId = session?.wxUserId;
+    const workspacePath = accountId
+      ? join(workspaceRoot, accountId)
+      : workspaceRoot;
     const projectRootPath = findProjectRoot(__dirname);
     const tempDir = join(workspacePath, 'temp');
-
-    const sessionDir = join(tempDir, `momoclaw-session-${sessionId}`);
+    const sessionDir = join(tempDir, 'ipc');
     const claudeDir = join(dirname(config.dbPath), 'claude-sessions');
+    const skillsDir = join(workspaceRoot, '.claude', 'skills');
 
-    [workspacePath, tempDir, sessionDir, claudeDir].forEach((dir) =>
+    [workspacePath, tempDir, sessionDir, claudeDir, skillsDir].forEach((dir) =>
       ensureDirWithPerms(dir),
     );
 
@@ -172,14 +177,10 @@ class ContainerManager {
       writeFileSync(claudeJsonPath, '{}');
     }
     chmodSync(claudeJsonPath, 0o666);
-
-    const sanitizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
     const containerName = `momoclaw-${sanitizedSessionId}`;
 
-    // 清理可能存在的残留同名容器
-    try {
-      spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
-    } catch {}
+    // 清理可能存在的残留同名容器（同步，确保完成后再创建）
+    spawnSync('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
 
     const dockerArgs = [
       'run',
@@ -197,6 +198,8 @@ class ContainerManager {
       `${sessionDir}:/workspace/session_tmp:rw`,
       `-v`,
       `${claudeDir}:/home/node/.claude:rw`,
+      `-v`,
+      `${skillsDir}:/home/node/.claude/skills:rw`,
       `-v`,
       `${claudeJsonPath}:/home/node/.claude.json:rw`,
       CONTAINER_IMAGE,

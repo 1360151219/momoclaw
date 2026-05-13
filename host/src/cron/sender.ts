@@ -8,49 +8,56 @@
 import type { ChannelType, ChannelHandler } from '../types.js';
 
 class ChannelRegistry {
-    private handlers = new Map<ChannelType, ChannelHandler>();
+    private handlers = new Map<string, ChannelHandler>();
+
+    private makeKey(type: ChannelType, wxUserId?: string): string {
+        return wxUserId ? `${type}:${wxUserId}` : type;
+    }
 
     /**
-     * Register a channel handler
+     * Register a channel handler.
+     * For Weixin, pass wxUserId to register per-user handlers.
      */
-    register(handler: ChannelHandler): void {
-        this.handlers.set(handler.type, handler);
+    register(handler: ChannelHandler, wxUserId?: string): void {
+        this.handlers.set(this.makeKey(handler.type, wxUserId), handler);
     }
 
     /**
      * Unregister a channel handler
      */
-    unregister(type: ChannelType): void {
-        this.handlers.delete(type);
+    unregister(type: ChannelType, wxUserId?: string): void {
+        this.handlers.delete(this.makeKey(type, wxUserId));
     }
 
     /**
-     * Get a handler by channel type
+     * Get a handler by channel type and optional wxUserId
      */
-    getHandler(type: ChannelType): ChannelHandler | undefined {
-        return this.handlers.get(type);
+    getHandler(type: ChannelType, wxUserId?: string): ChannelHandler | undefined {
+        return this.handlers.get(this.makeKey(type, wxUserId));
     }
 
     /**
      * Check if a handler is available for the given channel type
      */
-    isAvailable(type: ChannelType): boolean {
-        const handler = this.handlers.get(type);
+    isAvailable(type: ChannelType, wxUserId?: string): boolean {
+        const handler = this.handlers.get(this.makeKey(type, wxUserId));
         return handler ? handler.isAvailable() : false;
     }
 
     /**
-     * Send message to a specific channel
-     * Returns true if message was sent, false if channel not available
+     * Send message to a specific channel.
+     * For Weixin, pass wxUserId to route to the correct user's gateway.
+     * Returns true if message was sent, false if channel not available.
      */
     async sendMessage(
         type: ChannelType,
         channelId: string,
         content: string,
+        wxUserId?: string,
     ): Promise<boolean> {
-        const handler = this.handlers.get(type);
+        const handler = this.handlers.get(this.makeKey(type, wxUserId));
         if (!handler || !handler.isAvailable()) {
-            console.log(`[ChannelRegistry] Channel ${type} not available`);
+            console.log(`[ChannelRegistry] Channel ${type}${wxUserId ? `:${wxUserId}` : ''} not available`);
             return false;
         }
 
@@ -64,10 +71,17 @@ class ChannelRegistry {
     }
 
     /**
-     * Get all registered channel types
+     * Get all registered channel types (deduplicated)
      */
     getRegisteredChannels(): ChannelType[] {
-        return Array.from(this.handlers.keys());
+        const types = new Set<ChannelType>();
+        for (const key of this.handlers.keys()) {
+            const colonIdx = key.indexOf(':');
+            types.add(
+                (colonIdx === -1 ? key : key.slice(0, colonIdx)) as ChannelType,
+            );
+        }
+        return Array.from(types);
     }
 }
 

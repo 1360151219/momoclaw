@@ -2,31 +2,18 @@
  * Weixin Cron Handler - Routes cron task results to Weixin chats
  *
  * Implements ChannelHandler interface for cron task result delivery.
+ * Each WeixinUser gets their own handler instance with a reference to their gateway.
  */
 
 import type { ChannelHandler, ChannelType } from '../types.js';
-import type { WeixinConfig } from './types.js';
 import { WeixinGateway } from './gateway.js';
 
 export class WeixinCronHandler implements ChannelHandler {
     readonly type: ChannelType = 'weixin';
-    private gateway?: WeixinGateway;
+    private gateway: WeixinGateway | undefined;
 
-    constructor(config?: WeixinConfig) {
-        if (config) {
-            this.gateway = new WeixinGateway(config);
-        }
-    }
-
-    /**
-     * Update config (called when config changes)
-     */
-    updateConfig(config: WeixinConfig): void {
-        if (config) {
-            this.gateway = new WeixinGateway(config);
-        } else {
-            this.gateway = undefined;
-        }
+    constructor(gateway?: WeixinGateway) {
+        this.gateway = gateway;
     }
 
     isAvailable(): boolean {
@@ -43,15 +30,11 @@ export class WeixinCronHandler implements ChannelHandler {
 
         const client = this.gateway.getClient();
 
-        // Ensure client has a valid token by loading from local file
-        // The bot process should have already saved the token when it logged in
-        const hasToken = client.loadLocalToken();
-        if (!hasToken) {
+        if (!client.hasToken()) {
             throw new Error('Weixin token not available. Please ensure the bot is logged in.');
         }
 
-        // We use an empty context token here as this is an active push, not a reply
-        // Weixin might require a valid context token, but for active pushes we might need to rely on the latest stored one
+        // Use the latest stored context token for this chat
         const currentToken = this.gateway.getContextToken(chatId) || '';
 
         await client.sendTextMessage(chatId, formatted, currentToken);

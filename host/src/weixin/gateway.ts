@@ -8,38 +8,46 @@ import crypto from 'crypto';
 
 export class WeixinGateway extends EventEmitter {
   private client: WeixinClient;
+  private wxUserId: string | null = null;
   private isRunning: boolean = false;
   private getUpdatesBuf: string = '';
-  private contextTokenStore: Map<string, string> = new Map(); // userId -> context_token
+  private contextTokenStore: Map<string, string> = new Map();
   private cdnBaseUrl: string;
-  private workspaceDir: string;
+  private workspaceDir: string = '';
 
   constructor(config: WeixinConfig) {
     super();
     this.client = new WeixinClient(config);
     this.cdnBaseUrl = config.cdnBaseUrl;
-    // ensure workspace temp dir exists for images
-    this.workspaceDir = path.resolve(process.cwd(), './workspace/temp');
+  }
+
+  public getClient(): WeixinClient {
+    return this.client;
+  }
+
+  public getWxUserId(): string | null {
+    return this.wxUserId;
+  }
+
+  /** Set the wxUserId (ilink_user_id from WeChat) and isolate the temp dir. */
+  public setWxUserId(id: string): void {
+    this.wxUserId = id;
+    this.workspaceDir = path.resolve(process.cwd(), './workspace', id, 'temp');
     if (!fs.existsSync(this.workspaceDir)) {
       fs.mkdirSync(this.workspaceDir, { recursive: true });
     }
-  }
-
-  public getClient() {
-    return this.client;
   }
 
   public getContextToken(userId: string): string | undefined {
     return this.contextTokenStore.get(userId);
   }
 
-  public async start() {
+  public async start(): Promise<void> {
     if (this.isRunning) return;
 
     try {
-      const hasLocalToken = this.client.loadLocalToken();
-      if (hasLocalToken) {
-        console.log('[Weixin] Loaded local token, skipping QR code login.');
+      if (this.client.hasToken()) {
+        console.log('[Weixin] Using existing token, skipping QR code login.');
       } else {
         await this.client.loginWithQrcode();
       }
@@ -49,10 +57,11 @@ export class WeixinGateway extends EventEmitter {
       this.pollLoop();
     } catch (e) {
       console.error('[Weixin] Failed to start gateway:', e);
+      throw e;
     }
   }
 
-  public stop() {
+  public stop(): void {
     this.isRunning = false;
   }
 
@@ -74,28 +83,21 @@ export class WeixinGateway extends EventEmitter {
         }
 
         if (res.msgs && res.msgs.length > 0) {
-          // console.log(
-          //   '[Weixin] Received messages:',
-          //   JSON.stringify(res.msgs, null, 2),
-          // );
           for (const msg of res.msgs) {
             await this.handleMessage(msg);
           }
         }
       } catch (e) {
         console.error('[Weixin] Polling error:', e);
-        // sleep a bit on error before next poll
         await new Promise((r) => setTimeout(r, 3000));
       }
     }
   }
 
   private async handleMessage(msg: WeixinMessage) {
-    // Only handle user messages (1 = USER)
     if (msg.message_type !== 1) return;
     if (!msg.from_user_id || !msg.item_list) return;
 
-    // Store latest context token for this user
     if (msg.context_token) {
       this.contextTokenStore.set(msg.from_user_id, msg.context_token);
     }
@@ -111,11 +113,9 @@ export class WeixinGateway extends EventEmitter {
     let textParts: string[] = [];
 
     for (const item of msg.item_list) {
-      // Handle Text
       if (item.type === 1 && item.text_item) {
         textParts.push(item.text_item.text);
       } else if (item.type === 2 && item.image_item) {
-        // Handle Image
         try {
           const { encryptQueryParam, aesKey } = extractImageDownloadParams(
             item.image_item,
@@ -130,10 +130,8 @@ export class WeixinGateway extends EventEmitter {
 
           const filename = `wx_img_${crypto.randomBytes(4).toString('hex')}.jpg`;
           const localPath = path.join(this.workspaceDir, filename);
-
           fs.writeFileSync(localPath, decryptedBuf);
 
-          // Use the container path mapping: ./workspace/temp/xxx -> /workspace/temp/xxx
           const containerPath = `/workspace/temp/${filename}`;
           unifiedMsg.imageUrls!.push(containerPath);
         } catch (err) {
@@ -144,7 +142,6 @@ export class WeixinGateway extends EventEmitter {
 
     unifiedMsg.text = textParts.join('\n').trim();
 
-    // If no text and no images, ignore
     if (
       !unifiedMsg.text &&
       (!unifiedMsg.imageUrls || unifiedMsg.imageUrls.length === 0)

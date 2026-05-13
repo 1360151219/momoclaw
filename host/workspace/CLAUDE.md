@@ -32,7 +32,6 @@ Finish invoke the `memory` skill to retrieve Today's and Yesterday's memory reco
 ├── temp/                  # Temporary files 
 ├── credentials/           # Credentials files
 └── projects/              # Git repos and code projects
-    └── momoclaw/          # (Momoclaw) Your Own root directory
 ```
 > Create if not exists. Create subdirectories as needed.
 

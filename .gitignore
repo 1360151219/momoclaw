@@ -50,6 +50,7 @@ coverage/
 host/workspace/temp/
 host/workspace/memory/
 host/workspace/credentials/
+host/workspace/**/*
 
 
 

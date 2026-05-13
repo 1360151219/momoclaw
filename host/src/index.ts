@@ -7,10 +7,9 @@ import { CronService } from './cron/index.js';
 import kleur from 'kleur';
 import { startInteractiveChat } from './cli/index.js';
 import { startFeishuBot } from './feishu/bot.js';
-import { startWeixinBot } from './weixin/bot.js';
+import { WeixinUserManager } from './weixin/userManager.js';
 import { channelRegistry } from './cron/sender.js';
 import { FeishuCronHandler } from './feishu/cronHandler.js';
-import { WeixinCronHandler } from './weixin/cronHandler.js';
 import { startHostMcpServer } from './mcp/server.js';
 
 // Global instances
@@ -76,8 +75,8 @@ async function startFeishu(): Promise<boolean> {
 }
 
 /**
- * Start Weixin bot
- * 启动微信机器人
+ * Start Weixin bot (multi-user)
+ * 启动微信机器人（支持多用户）
  * @returns boolean 表示是否启动成功
  */
 async function startWeixin(): Promise<boolean> {
@@ -86,13 +85,17 @@ async function startWeixin(): Promise<boolean> {
     return false; // 启动失败/跳过
   }
 
-  // Register Weixin channel handler for task result push
-  // 注册微信的任务结果回传通道
-  channelRegistry.register(new WeixinCronHandler(config.weixin));
-
   console.log(kleur.cyan('✅ 检测到微信配置，正在启动微信机器人...'));
-  // 启动微信机器人监听（长轮询拉取微信消息）
-  await startWeixinBot({ weixinConfig: config.weixin });
+
+  const manager = new WeixinUserManager(config.weixin);
+  const startedCount = await manager.startAllActive();
+
+  if (startedCount === 0) {
+    console.error(kleur.yellow('⚠️ 没有微信用户成功启动。'));
+    return false;
+  }
+
+  console.log(kleur.green(`✅ 已启动 ${startedCount} 个微信用户`));
   return true; // 启动成功
 }
 

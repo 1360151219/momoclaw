@@ -93,6 +93,7 @@ async function executeCronAction(
                 nextRun,
                 channelContext?.type,
                 channelContext?.channelId,
+                channelContext?.wxUserId,
             );
 
             return {

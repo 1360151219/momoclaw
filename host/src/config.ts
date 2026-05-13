@@ -3,7 +3,7 @@ import { Config, ApiConfig } from './types.js';
 import { resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 function loadMemoryFile(workspaceDir: string, filePath: string): string {
   const fullPath = resolve(workspaceDir, filePath);

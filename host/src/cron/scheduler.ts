@@ -216,11 +216,12 @@ export class CronService {
       ? output || '任务执行完成（无输出）'
       : `❌ 任务执行失败: ${error || '未知错误'}`;
 
-    // 通过 ChannelRegistry 推送
+    // 通过 ChannelRegistry 推送（微信多用户时需 wxUserId 路由到正确的 gateway）
     const pushed = await channelRegistry.sendMessage(
       task.channelType,
       task.channelId,
       content,
+      task.wxUserId,
     );
 
     if (pushed) {
